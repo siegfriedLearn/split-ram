@@ -10,6 +10,7 @@ import { nowISO } from '../../utils/id'
 import type { ExportContext } from '../export/exporters'
 import { isGoogleConfigured } from '../../services/google/config'
 import { connectGoogle, disconnectGoogle } from '../../services/google/auth'
+import { findMyGroups } from '../../services/sync/groupSync'
 import { clearDebugLog, getDebugLog } from '../../utils/logger'
 
 const FREQ_LABELS = { weekly: 'Semanal', monthly: 'Mensual', yearly: 'Anual' }
@@ -21,6 +22,7 @@ export function SettingsPage() {
   const rules = useRecurringRules()
   const [meName, setMeName] = useState(me?.name ?? 'Yo')
   const [importing, setImporting] = useState(false)
+  const [finding, setFinding] = useState(false)
   const [message, setMessage] = useState('')
   const importRef = useRef<HTMLInputElement>(null)
 
@@ -128,18 +130,49 @@ export function SettingsPage() {
             sincronización vía Google Sheets — gratis y sin servidores.
           </p>
         ) : settings.googleEmail ? (
-          <div className="flex items-center justify-between gap-2">
-            <p className="truncate text-sm">
-              Conectado como <strong>{settings.googleEmail}</strong>
-            </p>
+          <div className="space-y-2">
+            <div className="flex items-center justify-between gap-2">
+              <p className="truncate text-sm">
+                Conectado como <strong>{settings.googleEmail}</strong>
+              </p>
+              <button
+                className="btn-secondary shrink-0"
+                onClick={async () => {
+                  await disconnectGoogle()
+                  setMessage('Cuenta Google desconectada')
+                }}
+              >
+                Desconectar
+              </button>
+            </div>
             <button
-              className="btn-secondary shrink-0"
+              className="btn-secondary w-full"
+              disabled={finding}
               onClick={async () => {
-                await disconnectGoogle()
-                setMessage('Cuenta Google desconectada')
+                setFinding(true)
+                setMessage('')
+                try {
+                  const r = await findMyGroups()
+                  if (r.reconnected.length > 0) {
+                    setMessage(
+                      `Reconecté ${r.reconnected.length} grupo(s): ${r.reconnected.join(', ')}` +
+                        (r.needIdentity > 0 ? ` · ${r.needIdentity} necesita(n) que elijas quién eres` : ''),
+                    )
+                  } else {
+                    setMessage(
+                      r.alreadyLinked > 0
+                        ? 'Todos tus grupos ya estaban en este dispositivo ✅'
+                        : 'No encontré grupos compartidos en tu Drive',
+                    )
+                  }
+                } catch (e) {
+                  setMessage(e instanceof Error ? e.message : 'No se pudieron buscar los grupos')
+                } finally {
+                  setFinding(false)
+                }
               }}
             >
-              Desconectar
+              {finding ? 'Buscando…' : 'Buscar mis grupos en Drive'}
             </button>
           </div>
         ) : (

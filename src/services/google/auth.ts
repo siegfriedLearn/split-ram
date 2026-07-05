@@ -174,6 +174,13 @@ export async function connectGoogle(): Promise<string> {
   const email = info.email ?? ''
   logDebug('auth', `conectado como ${email}`)
   await db.settings.update('app', { googleEmail: email })
+  // Guarda el email en mi persona "yo" si no lo tiene: permite que otros
+  // dispositivos y grupos me reconozcan por correo automáticamente.
+  const settings = await db.settings.get('app')
+  if (email && settings?.mePersonId) {
+    const me = await db.persons.get(settings.mePersonId)
+    if (me && !me.email) await db.persons.update(me.id, { email })
+  }
   return email
 }
 

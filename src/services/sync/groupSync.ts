@@ -4,6 +4,9 @@ import { getAccessToken, NeedsAuthError } from '../google/auth'
 import {
   batchGetTabs,
   createSpreadsheet,
+  ensureFolder,
+  fileIntoFolder,
+  listRamSplitSpreadsheets,
   overwriteTab,
   shareWithEmails,
   type ShareResult,
@@ -200,7 +203,18 @@ export async function shareGroup(
   }
 
   const spreadsheetId = await createSpreadsheet(`Ram Split · ${group.name}`, SHEET_TABS, token)
-  logDebug('share', `hoja creada: ${spreadsheetId}, sembrando datos…`)
+  logDebug('share', `hoja creada: ${spreadsheetId}, organizando en carpetas…`)
+
+  // Organiza en "RAM Split / <grupo> /" dentro del Drive y marca la hoja como grupo
+  try {
+    const rootFolder = await ensureFolder('RAM Split', null, token)
+    const groupFolder = await ensureFolder(group.name, rootFolder, token)
+    await fileIntoFolder(spreadsheetId, groupFolder, token)
+  } catch (e) {
+    // Si falla el ordenado en carpetas, la hoja sigue funcionando en la raíz
+    logDebug('share', 'no se pudo organizar en carpeta (no crítico)', e instanceof Error ? e.message : e)
+  }
+  logDebug('share', 'sembrando datos…')
 
   const persons = (await db.persons.bulkGet(group.memberIds)).filter((p): p is Person =>
     Boolean(p),
@@ -370,6 +384,47 @@ export async function adoptIdentity(newMeId: UUID): Promise<void> {
       await db.settings.update('app', { mePersonId: newMeId })
     },
   )
+}
+
+// ---------- buscar mis grupos en Drive ----------
+
+export interface FindGroupsResult {
+  reconnected: string[]
+  alreadyLinked: number
+  needIdentity: number
+}
+
+/**
+ * Reconecta automáticamente todos los grupos de Ram Split que la cuenta Google
+ * puede ver (los que creó o autorizó antes) y que aún no están en este
+ * dispositivo. Ideal para un teléfono nuevo: no hay que rehacer nada.
+ */
+export async function findMyGroups(): Promise<FindGroupsResult> {
+  const token = await getAccessToken(true)
+  const sheets = await listRamSplitSpreadsheets(token)
+  logDebug('find', `Drive reporta ${sheets.length} hoja(s) de Ram Split`)
+
+  const localGroups = await db.groups.toArray()
+  const linkedIds = new Set(
+    localGroups.filter((g) => g.share).map((g) => g.share!.spreadsheetId),
+  )
+
+  const result: FindGroupsResult = { reconnected: [], alreadyLinked: 0, needIdentity: 0 }
+  for (const sheet of sheets) {
+    if (linkedIds.has(sheet.id)) {
+      result.alreadyLinked++
+      continue
+    }
+    try {
+      const joined = await joinGroup(sheet.id)
+      result.reconnected.push(sheet.name)
+      if (joined.status === 'chooseIdentity') result.needIdentity++
+    } catch (e) {
+      logDebug('find', `no se pudo reconectar ${sheet.name}`, e instanceof Error ? e.message : e)
+    }
+  }
+  logDebug('find', `reconectados ${result.reconnected.length}, ya vinculados ${result.alreadyLinked}`)
+  return result
 }
 
 // ---------- programación ----------

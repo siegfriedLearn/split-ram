@@ -54,6 +54,60 @@ export async function createSpreadsheet(
   return res.spreadsheetId
 }
 
+/**
+ * Busca (o crea) una carpeta por nombre dentro de `parentId` (o la raíz del
+ * Drive si es null). Devuelve el id de la carpeta. Bajo `drive.file` solo
+ * encuentra carpetas creadas por la propia app, así que es idempotente.
+ */
+export async function ensureFolder(
+  name: string,
+  parentId: string | null,
+  token: string,
+): Promise<string> {
+  const parentClause = parentId ? ` and '${parentId}' in parents` : ''
+  const q = `mimeType='application/vnd.google-apps.folder' and name='${name.replace(/'/g, "\\'")}' and trashed=false${parentClause}`
+  const found = await gfetch<{ files?: Array<{ id: string }> }>(
+    `${DRIVE_API}/files?q=${encodeURIComponent(q)}&fields=files(id)&spaces=drive`,
+    token,
+  )
+  if (found.files && found.files.length > 0) return found.files[0].id
+  const created = await gfetch<{ id: string }>(`${DRIVE_API}/files`, token, {
+    method: 'POST',
+    body: JSON.stringify({
+      name,
+      mimeType: 'application/vnd.google-apps.folder',
+      parents: parentId ? [parentId] : undefined,
+    }),
+  })
+  return created.id
+}
+
+/** Mueve una hoja a una carpeta y la marca como grupo de Ram Split (appProperties). */
+export async function fileIntoFolder(
+  fileId: string,
+  folderId: string,
+  token: string,
+): Promise<void> {
+  await gfetch(
+    `${DRIVE_API}/files/${fileId}?addParents=${folderId}&removeParents=root&fields=id`,
+    token,
+    { method: 'PATCH', body: JSON.stringify({ appProperties: { ramsplit: 'group' } }) },
+  )
+}
+
+/** Lista las hojas de Ram Split accesibles por la cuenta (creadas o autorizadas). */
+export async function listRamSplitSpreadsheets(
+  token: string,
+): Promise<Array<{ id: string; name: string }>> {
+  const q =
+    "appProperties has { key='ramsplit' and value='group' } and trashed=false and mimeType='application/vnd.google-apps.spreadsheet'"
+  const res = await gfetch<{ files?: Array<{ id: string; name: string }> }>(
+    `${DRIVE_API}/files?q=${encodeURIComponent(q)}&fields=files(id,name)&spaces=drive&pageSize=100`,
+    token,
+  )
+  return res.files ?? []
+}
+
 /** Lee todas las pestañas pedidas de una vez. Devuelve filas por pestaña (puede ser []). */
 export async function batchGetTabs(
   spreadsheetId: string,
