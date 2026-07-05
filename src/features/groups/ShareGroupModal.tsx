@@ -5,7 +5,8 @@ import { useApp } from '../../state/AppContext'
 import { Field, Modal } from '../../components/ui'
 import { IconCheck, IconCloud, IconCopy, IconRepeat } from '../../components/icons'
 import { isGoogleConfigured } from '../../services/google/config'
-import { connectGoogle } from '../../services/google/auth'
+import { connectGoogle, getAccessToken } from '../../services/google/auth'
+import { pickSharedSpreadsheet } from '../../services/google/picker'
 import { spreadsheetUrl } from '../../services/google/sheets'
 import {
   buildJoinLink,
@@ -99,6 +100,28 @@ export function ShareGroupModal({ group, onClose }: { group: Group; onClose: () 
       setNotice('Sincronizado ✅')
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Error al sincronizar')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  // Bajo drive.file, si la app perdió acceso a la hoja se recupera eligiéndola de nuevo
+  async function handleReauthorize() {
+    if (!group.share) return
+    setBusy(true)
+    setError('')
+    try {
+      const token = await getAccessToken(true)
+      const picked = await pickSharedSpreadsheet(token)
+      if (!picked) return
+      if (picked !== group.share.spreadsheetId) {
+        setError('Esa no es la hoja de este grupo; elige la correcta en "Compartidos conmigo".')
+        return
+      }
+      await syncGroup(group.id, true)
+      setNotice('Hoja reautorizada y sincronizada ✅')
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'No se pudo reautorizar la hoja')
     } finally {
       setBusy(false)
     }
@@ -234,6 +257,11 @@ export function ShareGroupModal({ group, onClose }: { group: Group; onClose: () 
                 <IconRepeat size={13} /> {busy ? 'Sincronizando…' : 'Sincronizar ahora'}
               </button>
             </div>
+            {share.role === 'member' && share.lastError && /sin permiso|no se encontró/i.test(share.lastError) && (
+              <button className="btn-secondary w-full" onClick={handleReauthorize} disabled={busy}>
+                Reautorizar hoja (elegirla en Drive)
+              </button>
+            )}
 
             <Field label="Link de unión (envíalo por WhatsApp)">
               <div className="flex items-center gap-2">

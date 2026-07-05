@@ -4,15 +4,23 @@ import { useApp } from '../../state/AppContext'
 import { Avatar } from '../../components/ui'
 import { IconCloud } from '../../components/icons'
 import { isGoogleConfigured } from '../../services/google/config'
-import { connectGoogle } from '../../services/google/auth'
+import { connectGoogle, getAccessToken } from '../../services/google/auth'
+import { pickSharedSpreadsheet } from '../../services/google/picker'
 import { adoptIdentity, joinGroup } from '../../services/sync/groupSync'
 
 type Step =
   | { kind: 'start' }
   | { kind: 'busy'; label: string }
+  | { kind: 'pick' }
   | { kind: 'chooseIdentity'; groupId: string; members: Person[] }
   | { kind: 'done' }
   | { kind: 'error'; message: string }
+
+/** Bajo drive.file, la hoja no es visible hasta que el usuario la elige en el Picker. */
+function needsPicker(e: unknown): boolean {
+  const msg = e instanceof Error ? e.message : ''
+  return /sin permiso|no se encontró/i.test(msg)
+}
 
 export function JoinGroupPage({ spreadsheetId }: { spreadsheetId: string }) {
   const { settings } = useApp()
@@ -22,17 +30,43 @@ export function JoinGroupPage({ spreadsheetId }: { spreadsheetId: string }) {
     location.hash = '#/grupos'
   }
 
+  async function joinWith(id: string) {
+    setStep({ kind: 'busy', label: 'Leyendo el grupo compartido…' })
+    const result = await joinGroup(id)
+    if (result.status === 'chooseIdentity') {
+      setStep({ kind: 'chooseIdentity', groupId: result.groupId, members: result.members })
+    } else {
+      setStep({ kind: 'done' })
+    }
+  }
+
   async function handleJoin() {
     setStep({ kind: 'busy', label: 'Conectando con Google…' })
     try {
       if (!settings.googleEmail) await connectGoogle()
-      setStep({ kind: 'busy', label: 'Leyendo el grupo compartido…' })
-      const result = await joinGroup(spreadsheetId)
-      if (result.status === 'chooseIdentity') {
-        setStep({ kind: 'chooseIdentity', groupId: result.groupId, members: result.members })
-      } else {
-        setStep({ kind: 'done' })
+      await joinWith(spreadsheetId)
+    } catch (e) {
+      if (needsPicker(e)) {
+        setStep({ kind: 'pick' })
+        return
       }
+      setStep({ kind: 'error', message: e instanceof Error ? e.message : 'No se pudo unir al grupo' })
+    }
+  }
+
+  async function handlePick() {
+    try {
+      const token = await getAccessToken(true)
+      const picked = await pickSharedSpreadsheet(token)
+      if (!picked) return // canceló: sigue en el paso de elegir
+      if (
+        picked !== spreadsheetId &&
+        !window.confirm(
+          'La hoja elegida no coincide con la del link de invitación. ¿Usar la elegida de todas formas?',
+        )
+      )
+        return
+      await joinWith(picked)
     } catch (e) {
       setStep({ kind: 'error', message: e instanceof Error ? e.message : 'No se pudo unir al grupo' })
     }
@@ -77,6 +111,21 @@ export function JoinGroupPage({ spreadsheetId }: { spreadsheetId: string }) {
       )}
 
       {step.kind === 'busy' && <p className="animate-pulse text-sm text-slate-500">{step.label}</p>}
+
+      {step.kind === 'pick' && (
+        <>
+          <p className="text-sm leading-relaxed text-slate-500">
+            Un paso más: elige la hoja del grupo en tu Google Drive (aparece en "Compartidos
+            conmigo"). Esto le da acceso a la app <strong>solo a esa hoja</strong>.
+          </p>
+          <button className="btn-primary w-full" onClick={handlePick}>
+            Elegir la hoja compartida
+          </button>
+          <button className="text-xs font-semibold text-slate-400" onClick={goToGroups}>
+            Cancelar
+          </button>
+        </>
+      )}
 
       {step.kind === 'chooseIdentity' && (
         <>

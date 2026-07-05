@@ -33,37 +33,54 @@ cuentas ni servidores.
 
 Cada grupo compartido vive en una **hoja de Google Sheets en el Drive del creador**. La app
 (100% estática) lee y escribe la hoja directamente desde el navegador con la cuenta Google
-de cada miembro. Sin servidores, sin costos de mantenimiento.
+de cada miembro. Sin servidores, sin costos de mantenimiento, y con el permiso limitado
+`drive.file`: la app solo puede tocar las hojas que ella misma crea o que el usuario elige.
 
-### Configuración única (gratis, ~10 minutos)
+### Para usuarios: nada que configurar
 
-1. Entra a [console.cloud.google.com](https://console.cloud.google.com) y crea un proyecto
-   (no pide tarjeta).
-2. En **APIs y servicios → Biblioteca**, habilita **Google Sheets API** y **Google Drive API**.
-3. En **APIs y servicios → Pantalla de consentimiento OAuth**: tipo **Externo**, modo
-   **Testing**, y agrega como *test users* los emails (Gmail) de las personas que usarán la
-   app (máximo 100).
-4. En **APIs y servicios → Credenciales → Crear credenciales → ID de cliente de OAuth**:
-   tipo **Aplicación web**, y en *Orígenes de JavaScript autorizados* agrega la URL donde
-   sirvas la app (p. ej. `https://tu-app.vercel.app`) y `http://localhost:5173` para
-   desarrollo.
-5. Copia el Client ID en un archivo `.env` en la raíz del proyecto:
+1. Abre la URL de la app publicada e instálala ("Instalar aplicación" en el menú de Chrome).
+2. **Compartir**: entra al grupo → ícono de compartir → conectar Google → emails →
+   "Crear hoja y compartir". Google envía la invitación por correo y la app te da un
+   **link de unión** para mandar por WhatsApp.
+3. **Unirse**: el invitado abre el link, conecta su cuenta Google y elige la hoja del grupo
+   en el selector de Google (solo la primera vez — es lo que autoriza a la app a esa hoja).
+   Si su email coincide con un miembro, la app lo reconoce sola.
+4. **Sincronización**: al abrir la app, tras cada cambio y cada 60 s con la app visible.
+   Conflictos: gana la última edición. Las fotos de recibos no se sincronizan.
+
+### Publicar tu propia instancia (avanzado, una sola vez, gratis)
+
+Quien publica la app configura un proyecto de Google Cloud; sus usuarios no configuran nada.
+
+1. Crea un proyecto en [console.cloud.google.com](https://console.cloud.google.com)
+   (sin tarjeta) y habilita **Google Sheets API**, **Google Drive API** y
+   **Google Picker API** (APIs y servicios → Biblioteca).
+2. **Pantalla de consentimiento OAuth**: tipo Externo. No subas logo (dispara verificación
+   de marca). Pon como Privacy Policy la URL `https://<tu-url>/privacidad.html`. Declara
+   solo los scopes no sensibles (`drive.file`, `openid`, `email`). Luego
+   **Publish app → In production** — al ser scopes no sensibles no requiere verificación
+   ni lista de usuarios de prueba: cualquier cuenta Google del mundo puede usarla.
+3. **Credenciales**:
+   - OAuth Client ID tipo **Aplicación web** con tus URLs en *Orígenes de JavaScript
+     autorizados* (producción y `http://localhost:5173` para desarrollo).
+   - **API key** restringida por referrer (`https://<tu-url>/*`) para el selector de Google.
+4. Variables de entorno (en `.env` local y en tu hosting):
    ```
    VITE_GOOGLE_CLIENT_ID=xxxxx.apps.googleusercontent.com
+   VITE_GOOGLE_API_KEY=AIza...
    ```
-   y reconstruye (`npm run build`).
+5. Despliega gratis: `npx vercel --prod` (o Netlify/Cloudflare Pages). La URL resultante es
+   la que comparte todo el mundo; la PWA se actualiza sola.
 
-### Flujo de uso
+Límites del proyecto compartido: cuota de Sheets API ~300 lecturas/min sumando todos los
+usuarios (ampliable gratis solicitándolo en la consola); el token de Google dura ~1 h y se
+renueva con un toque cuando la app lo pide.
 
-- **Compartir**: Grupos → ícono de compartir → conectar Google → emails de los miembros →
-  "Crear hoja y compartir". Google envía la invitación por correo y la app te da un **link
-  de unión** para mandar por WhatsApp.
-- **Unirse**: el invitado abre el link (`#/unirse/…`), conecta su cuenta Google y el grupo
-  aparece en su app. Si su email coincide con un miembro, la app lo reconoce solo; si no,
-  le pregunta "¿quién eres tú?".
-- **Sincronización**: al abrir la app, unos segundos después de cada cambio, y cada 60 s
-  con la app visible. Conflictos: gana la última edición. Las fotos de recibos no se
-  sincronizan (quedan en cada dispositivo).
+### Opcional: Play Store
+
+La PWA pública ya cubre Android/iOS/escritorio. Si quieres presencia en Play Store,
+empaqueta la misma URL con [PWABuilder](https://www.pwabuilder.com) (TWA); requiere cuenta
+de desarrollador de Google Play (US$25 una vez). La app seguirá actualizándose desde la URL.
 
 ## Desarrollo
 
