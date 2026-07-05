@@ -54,7 +54,16 @@ export function ExpenseList({
                   return person?.isMe ? 'Tú' : (person?.name ?? '?')
                 })
                 .join(', ')
-              const myShare = me ? e.splits.find((s) => s.personId === me.id) : undefined
+              // Mi posición en este gasto: lo que pagué menos lo que me toca.
+              // Positivo = presté; negativo = pedí prestado.
+              const meId = me?.id
+              const myPaid = meId
+                ? e.paidBy.reduce((s, p) => (p.personId === meId ? s + p.amountCents : s), 0)
+                : 0
+              const myShareCents = meId
+                ? (e.splits.find((s) => s.personId === meId)?.amountCents ?? 0)
+                : 0
+              const net = myPaid - myShareCents
               return (
                 <button
                   key={e.id}
@@ -79,12 +88,24 @@ export function ExpenseList({
                       {showGroup && group ? ` · ${group.name}` : ''} · Pagó {payers}
                     </p>
                   </div>
-                  <div className="text-right">
-                    <p className="text-sm font-bold">{formatMoney(e.amountCents, e.currency)}</p>
-                    {myShare && myShare.amountCents !== e.amountCents && (
-                      <p className="text-xs text-slate-400">
-                        Tu parte: {formatMoney(myShare.amountCents, e.currency)}
-                      </p>
+                  <div className="shrink-0 text-right">
+                    <p className="text-xs text-slate-400">{formatMoney(e.amountCents, e.currency)}</p>
+                    {net > 0 ? (
+                      <>
+                        <p className="text-[11px] leading-tight text-emerald-600">prestaste</p>
+                        <p className="text-sm font-bold text-emerald-600">
+                          {formatMoney(net, e.currency)}
+                        </p>
+                      </>
+                    ) : net < 0 ? (
+                      <>
+                        <p className="text-[11px] leading-tight text-red-500">pediste prestado</p>
+                        <p className="text-sm font-bold text-red-500">
+                          {formatMoney(-net, e.currency)}
+                        </p>
+                      </>
+                    ) : (
+                      <p className="text-[11px] leading-tight text-slate-400">sin parte</p>
                     )}
                   </div>
                 </button>

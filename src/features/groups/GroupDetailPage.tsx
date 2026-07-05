@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react'
 import type { Expense } from '../../db/types'
 import { db, touched } from '../../db/db'
 import { useApp } from '../../state/AppContext'
-import { useExpenses } from '../../db/hooks'
+import { useExpenses, useSettlements } from '../../db/hooks'
 import { EmptyState, SegmentedControl } from '../../components/ui'
 import {
   IconCloud,
@@ -15,6 +15,7 @@ import {
 } from '../../components/icons'
 import { formatMoney, timeAgo } from '../../utils/format'
 import { computeNetBalances } from '../../domain/balances'
+import { simplifyDebts } from '../../domain/simplifyDebts'
 import { nowISO } from '../../utils/id'
 import { syncGroup } from '../../services/sync/groupSync'
 import { ExpenseForm } from '../expenses/ExpenseForm'
@@ -25,8 +26,9 @@ import { GroupForm, GROUP_TYPES } from './GroupsPage'
 
 /** Detalle de un grupo: sus gastos y sus balances. `groupId === 'none'` = sin grupo. */
 export function GroupDetailPage({ groupId }: { groupId: string }) {
-  const { groupById, settings, me } = useApp()
+  const { groupById, personById, settings, me } = useApp()
   const expenses = useExpenses()
+  const settlements = useSettlements()
   const [view, setView] = useState<'gastos' | 'balances'>('gastos')
   const [editing, setEditing] = useState<Expense | 'new' | null>(null)
   const [showEdit, setShowEdit] = useState(false)
@@ -42,12 +44,27 @@ export function GroupDetailPage({ groupId }: { groupId: string }) {
       (expenses ?? []).filter((e) => (isNone ? !e.groupId : e.groupId === groupId)),
     [expenses, groupId, isNone],
   )
+  const scopedSettlements = useMemo(
+    () =>
+      (settlements ?? []).filter((s) => (isNone ? !s.groupId : s.groupId === groupId)),
+    [settlements, groupId, isNone],
+  )
 
-  const myBalance = useMemo(() => {
-    if (!me) return 0
-    return computeNetBalances(scoped, []).get(me.id) ?? 0
-  }, [scoped, me])
-  void myBalance
+  // Resumen tipo Splitwise: mi posición neta y con quién, ya liquidando pagos.
+  const summary = useMemo(() => {
+    if (!me) return { overall: 0, lines: [] as Array<{ name: string; cents: number }> }
+    const balances = computeNetBalances(scoped, scopedSettlements)
+    const overall = balances.get(me.id) ?? 0
+    const lines = simplifyDebts(balances)
+      .filter((t) => t.from === me.id || t.to === me.id)
+      .map((t) =>
+        t.to === me.id
+          ? { name: personById.get(t.from)?.name ?? '?', cents: t.amountCents } // me deben
+          : { name: personById.get(t.to)?.name ?? '?', cents: -t.amountCents }, // le debo
+      )
+      .sort((a, b) => b.cents - a.cents)
+    return { overall, lines }
+  }, [scoped, scopedSettlements, me, personById])
 
   function goBack() {
     location.hash = '#/grupos'
@@ -145,7 +162,47 @@ export function GroupDetailPage({ groupId }: { groupId: string }) {
         )}
       </div>
 
-      {/* Total del grupo */}
+      {/* Resumen de cuentas (estilo Splitwise) */}
+      <div className="card px-4 py-3">
+        <p className="text-base font-bold">
+          {Math.abs(summary.overall) < 100 ? (
+            <span className="text-slate-700 dark:text-slate-200">Estás al día en este grupo</span>
+          ) : summary.overall > 0 ? (
+            <>
+              <span className="text-slate-500">En total, </span>
+              <span className="text-emerald-600">
+                te deben {formatMoney(summary.overall, settings.baseCurrency)}
+              </span>
+            </>
+          ) : (
+            <>
+              <span className="text-slate-500">En total, </span>
+              <span className="text-red-500">
+                debes {formatMoney(-summary.overall, settings.baseCurrency)}
+              </span>
+            </>
+          )}
+        </p>
+        {summary.lines.length > 0 && (
+          <div className="mt-2 space-y-1 border-l-2 border-slate-200 pl-3 dark:border-slate-700">
+            {summary.lines.map((l) => (
+              <p key={l.name} className="text-sm">
+                {l.cents > 0 ? (
+                  <span className="text-emerald-600">
+                    {l.name} te debe {formatMoney(l.cents, settings.baseCurrency)}
+                  </span>
+                ) : (
+                  <span className="text-red-500">
+                    Le debes a {l.name} {formatMoney(-l.cents, settings.baseCurrency)}
+                  </span>
+                )}
+              </p>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* Total del grupo + selector de vista */}
       <div className="card flex items-center justify-between px-4 py-3">
         <p className="text-sm text-slate-500">
           Total gastado:{' '}
