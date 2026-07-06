@@ -160,7 +160,7 @@ export function GroupsPage() {
 function GroupCard({ group, balance }: { group: Group; balance: React.ReactNode }) {
   const { personById } = useApp()
   const typeInfo = GROUP_TYPES.find((t) => t.value === group.type)
-  const imageUrl = useDriveImage(group.imageLocalId, group.imageDriveId)
+  const imageUrl = useDriveImage(group.imageLocalId, group.imageDriveId, true)
   return (
     <button
       onClick={() => (location.hash = `#/grupos/${group.id}`)}
@@ -280,7 +280,7 @@ export function GroupForm({ group, onClose }: { group: Group | null; onClose: ()
   )
   const [imageLocalId, setImageLocalId] = useState<string | null>(group?.imageLocalId ?? null)
   const imgInputRef = useRef<HTMLInputElement>(null)
-  const imageUrl = useDriveImage(imageLocalId, imageLocalId ? null : group?.imageDriveId)
+  const imageUrl = useDriveImage(imageLocalId, imageLocalId ? null : group?.imageDriveId, true)
   const [error, setError] = useState('')
 
   const percentSum = memberIds.reduce((s, id) => s + (Number(splitValues[id]) || 0), 0)

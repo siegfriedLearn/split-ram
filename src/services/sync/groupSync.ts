@@ -8,6 +8,7 @@ import {
   fileIntoFolder,
   listFolderSheets,
   listRamSplitSpreadsheets,
+  makeFilePublic,
   overwriteTab,
   shareWithEmails,
   uploadToFolder,
@@ -55,17 +56,23 @@ async function ensureCategories(refs: CategoryRef[]): Promise<Map<string, UUID>>
   return byName
 }
 
-/** Sube un blob local (de la tabla receipts) a la carpeta; cachea la copia bajada. */
+/**
+ * Sube un blob local (de la tabla receipts) a la carpeta; cachea la copia.
+ * `makePublic` hace el archivo visible por link (para portadas, que todos ven
+ * incrustadas); los recibos van privados (solo por acceso a la carpeta).
+ */
 async function uploadLocalImage(
   localId: string,
   folderId: string,
   name: string,
   token: string,
+  makePublic = false,
 ): Promise<string | null> {
   const local = await db.receipts.get(localId)
   if (!local) return null
   const compressed = await compressImage(local.blob)
   const driveId = await uploadToFolder(folderId, compressed, name, token)
+  if (makePublic) await makeFilePublic(driveId, token).catch(() => {})
   await db.driveBlobs.put({ id: driveId, blob: compressed, mimeType: compressed.type, fetchedAt: nowISO() })
   return driveId
 }
@@ -102,6 +109,7 @@ async function doSync(groupId: string, interactive: boolean): Promise<void> {
           share.folderId,
           `portada-${group.name}`,
           token,
+          true, // portada pública por link
         ).catch(() => null)
         if (driveId) await db.groups.update(groupId, { imageDriveId: driveId, ...touched() })
       }
@@ -261,7 +269,13 @@ export async function shareGroup(
   // Sube la portada del grupo (si el usuario le puso una) a la carpeta
   let imageDriveId = group.imageDriveId ?? null
   if (group.imageLocalId && !imageDriveId) {
-    imageDriveId = await uploadLocalImage(group.imageLocalId, groupFolder, `portada-${group.name}`, token)
+    imageDriveId = await uploadLocalImage(
+      group.imageLocalId,
+      groupFolder,
+      `portada-${group.name}`,
+      token,
+      true, // portada pública por link: todos los miembros la ven
+    )
   }
   logDebug('share', 'sembrando datos…')
 

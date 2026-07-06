@@ -203,6 +203,14 @@ export async function uploadToFolder(
   return data.id
 }
 
+/** Hace un archivo visible por link ("cualquiera con el enlace, lector"). */
+export async function makeFilePublic(fileId: string, token: string): Promise<void> {
+  await gfetch(`${DRIVE_API}/files/${fileId}/permissions`, token, {
+    method: 'POST',
+    body: JSON.stringify({ role: 'reader', type: 'anyone' }),
+  })
+}
+
 /** Descarga un archivo de Drive por id. Devuelve el Blob y su tipo. */
 export async function downloadFile(
   fileId: string,

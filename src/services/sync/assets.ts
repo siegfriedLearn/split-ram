@@ -31,3 +31,8 @@ export async function getImageUrl(driveId: string): Promise<string | null> {
 export function driveViewUrl(driveId: string): string {
   return `https://drive.google.com/file/d/${driveId}/view`
 }
+
+/** URL de imagen para archivos públicos por link (portadas). Sirve en <img>. */
+export function drivePublicImageUrl(driveId: string): string {
+  return `https://lh3.googleusercontent.com/d/${driveId}=w1000`
+}

@@ -1,28 +1,36 @@
 import { useEffect, useState } from 'react'
 import { db } from '../db/db'
-import { getImageUrl } from '../services/sync/assets'
+import { drivePublicImageUrl, getImageUrl } from '../services/sync/assets'
 
 /**
- * Devuelve un object URL para una imagen: primero la copia local (tabla
- * receipts) si existe, si no la baja de Drive (cacheada). null mientras carga
- * o si no hay acceso.
+ * URL de imagen: primero la copia local (tabla receipts), luego la caché de
+ * Drive. Con `publicFallback` (portadas, que son públicas por link) usa la URL
+ * pública de Drive cuando no hay copia local/caché — así la ven todos los
+ * miembros. null si no hay nada que mostrar.
  */
-export function useDriveImage(localId?: string | null, driveId?: string | null): string | null {
-  const [url, setUrl] = useState<string | null>(null)
+export function useDriveImage(
+  localId?: string | null,
+  driveId?: string | null,
+  publicFallback = false,
+): string | null {
+  const [url, setUrl] = useState<string | null>(
+    publicFallback && driveId && !localId ? drivePublicImageUrl(driveId) : null,
+  )
   useEffect(() => {
     let revoked = false
     let objUrl: string | null = null
-    setUrl(null)
+    setUrl(publicFallback && driveId && !localId ? drivePublicImageUrl(driveId) : null)
     void (async () => {
       let u: string | null = null
       if (localId) {
         const r = await db.receipts.get(localId)
         if (r) u = URL.createObjectURL(r.blob)
       } else if (driveId) {
-        u = await getImageUrl(driveId)
+        u = await getImageUrl(driveId) // caché local; null si no está
       }
+      if (!u) return // se mantiene el fallback público (o null)
       if (revoked) {
-        if (u) URL.revokeObjectURL(u)
+        URL.revokeObjectURL(u)
         return
       }
       objUrl = u
@@ -32,6 +40,6 @@ export function useDriveImage(localId?: string | null, driveId?: string | null):
       revoked = true
       if (objUrl) URL.revokeObjectURL(objUrl)
     }
-  }, [localId, driveId])
+  }, [localId, driveId, publicFallback])
   return url
 }

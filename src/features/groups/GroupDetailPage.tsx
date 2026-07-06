@@ -39,7 +39,7 @@ export function GroupDetailPage({ groupId }: { groupId: string }) {
   const isNone = groupId === 'none'
   const group = isNone ? undefined : groupById.get(groupId)
   const typeInfo = GROUP_TYPES.find((t) => t.value === group?.type)
-  const groupImage = useDriveImage(group?.imageLocalId, group?.imageDriveId)
+  const groupImage = useDriveImage(group?.imageLocalId, group?.imageDriveId, true)
 
   const scoped = useMemo(
     () =>
