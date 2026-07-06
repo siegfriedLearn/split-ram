@@ -12,7 +12,7 @@ import type {
 import { SUPPORTED_CURRENCIES } from '../../db/types'
 import { useApp } from '../../state/AppContext'
 import { Avatar, Field, Modal, SegmentedControl } from '../../components/ui'
-import { IconCamera, IconSparkles, IconTrash } from '../../components/icons'
+import { IconCamera, IconReceipt, IconSparkles, IconTrash } from '../../components/icons'
 import { QuickAddPerson } from '../../components/QuickAddPerson'
 import { splitEqual, splitExact, splitItems, splitPercent, splitShares } from '../../domain/splits'
 import { advanceDate } from '../../domain/recurring'
@@ -21,6 +21,7 @@ import { nowISO, todayISO, uuid } from '../../utils/id'
 import { getRate } from '../../services/fx'
 import { scanReceipt } from '../../services/ocr'
 import { useDriveImage } from '../../hooks/useDriveImage'
+import { driveViewUrl } from '../../services/sync/assets'
 import { notifyGroupMutation } from '../../services/sync/groupSync'
 
 const METHOD_LABELS: Array<{ value: SplitMethod; label: string }> = [
@@ -773,12 +774,24 @@ export function ExpenseForm({
               </>
             )}
           </div>
-          {receiptPreviewUrl && (
+          {receiptPreviewUrl ? (
             <img
               src={receiptPreviewUrl}
               alt="Recibo"
               className="mt-2 max-h-40 rounded-xl object-contain"
             />
+          ) : (
+            keepReceipt &&
+            expense?.receiptDriveId && (
+              <a
+                href={driveViewUrl(expense.receiptDriveId)}
+                target="_blank"
+                rel="noreferrer"
+                className="mt-2 inline-flex items-center gap-1.5 text-sm font-semibold text-brand-600 hover:underline"
+              >
+                <IconReceipt size={16} /> Ver recibo en Drive ↗
+              </a>
+            )
           )}
         </Field>
 

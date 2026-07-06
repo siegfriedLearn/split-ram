@@ -1,13 +1,14 @@
 import { db } from '../../db/db'
 import { getAccessToken } from '../google/auth'
-import { downloadFile, uploadToFolder } from '../google/sheets'
+import { uploadToFolder } from '../google/sheets'
 import { compressImage } from '../../utils/image'
 import { nowISO } from '../../utils/id'
-import { logDebug } from '../../utils/logger'
 
 /**
- * Imágenes (recibos y portadas de grupo) compartidas vía la carpeta del grupo
- * en Drive. Se cachean localmente en `driveBlobs` para no rebajarlas cada vez.
+ * Imágenes (recibos y portadas de grupo) en la carpeta del grupo en Drive.
+ * Bajo el permiso `drive.file`, la app solo puede leer por API las imágenes que
+ * ella misma subió (quedan en caché local). Para las que subió otro miembro,
+ * el acceso es vía el link de Drive (el miembro tiene permiso sobre la carpeta).
  */
 
 /** Sube una imagen (comprimida) a la carpeta del grupo. Devuelve su id de Drive. */
@@ -20,17 +21,13 @@ export async function uploadImage(folderId: string, file: Blob, name: string): P
   return id
 }
 
-/** Devuelve un object URL de una imagen de Drive, bajándola y cacheándola si hace falta. */
-export async function getImageUrl(driveId: string, interactive = false): Promise<string | null> {
+/** Object URL desde la caché local (sin llamar a la API). null si no está cacheada. */
+export async function getImageUrl(driveId: string): Promise<string | null> {
   const cached = await db.driveBlobs.get(driveId)
-  if (cached) return URL.createObjectURL(cached.blob)
-  try {
-    const token = await getAccessToken(interactive)
-    const { blob, mimeType } = await downloadFile(driveId, token)
-    await db.driveBlobs.put({ id: driveId, blob, mimeType, fetchedAt: nowISO() })
-    return URL.createObjectURL(blob)
-  } catch (e) {
-    logDebug('assets', `no se pudo bajar ${driveId}`, e instanceof Error ? e.message : e)
-    return null
-  }
+  return cached ? URL.createObjectURL(cached.blob) : null
+}
+
+/** Link para abrir un archivo directamente en Google Drive (usa la sesión del usuario). */
+export function driveViewUrl(driveId: string): string {
+  return `https://drive.google.com/file/d/${driveId}/view`
 }
