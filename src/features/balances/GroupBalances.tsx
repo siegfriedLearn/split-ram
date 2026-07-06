@@ -16,6 +16,7 @@ import {
 import { nowISO, todayISO } from '../../utils/id'
 import { notifyGroupMutation } from '../../services/sync/groupSync'
 import { scheduleBackup } from '../../services/sync/backup'
+import { ensureFreshToken } from '../../services/google/auth'
 
 /** Balances, deudas simplificadas y pagos de un grupo ('none' = gastos sin grupo). */
 export function GroupBalances({ scope }: { scope: string }) {
@@ -201,6 +202,7 @@ function SettleForm({
   const [error, setError] = useState('')
 
   async function save() {
+    ensureFreshToken() // gesto del usuario: renueva el token si está por vencer
     // Si el usuario no tocó el monto prellenado, liquida el valor exacto en centavos
     const amountCents =
       prefill && amountStr === initialAmountStr

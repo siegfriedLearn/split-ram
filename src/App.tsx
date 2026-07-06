@@ -3,6 +3,7 @@ import { AppProvider, useApp } from './state/AppContext'
 import { materializeRecurring } from './services/recurringService'
 import { syncAllSharedGroups } from './services/sync/groupSync'
 import { backupToDrive } from './services/sync/backup'
+import { getAccessToken, hasValidToken } from './services/google/auth'
 import { JoinGroupPage } from './features/groups/JoinGroupPage'
 import { GroupDetailPage } from './features/groups/GroupDetailPage'
 import { IconChart, IconCog, IconReceipt, IconUsers } from './components/icons'
@@ -47,6 +48,50 @@ function useHashRoute(): [Route, (t: Tab) => void] {
     return () => window.removeEventListener('hashchange', onHash)
   }, [])
   return [route, (t) => (location.hash = `#/${t}`)]
+}
+
+/** Banner global: aparece cuando la sesión de Google expiró y hay grupos compartidos. */
+function ReconnectBanner() {
+  const { settings, groups } = useApp()
+  const [expired, setExpired] = useState(false)
+  const [busy, setBusy] = useState(false)
+
+  const hasShared = groups.some((g) => g.share)
+  const connected = Boolean(settings.googleEmail)
+
+  useEffect(() => {
+    if (!connected || !hasShared) {
+      setExpired(false)
+      return
+    }
+    const check = () => setExpired(!hasValidToken())
+    check()
+    const interval = setInterval(check, 30_000)
+    return () => clearInterval(interval)
+  }, [connected, hasShared])
+
+  if (!expired) return null
+  return (
+    <button
+      className="fixed inset-x-3 top-2 z-50 flex items-center justify-center gap-2 rounded-2xl bg-amber-500 px-4 py-2.5 text-sm font-bold text-amber-950 shadow-lg sm:inset-x-auto sm:right-4 sm:left-auto"
+      disabled={busy}
+      onClick={async () => {
+        setBusy(true)
+        try {
+          await getAccessToken(true)
+          setExpired(false)
+          void syncAllSharedGroups()
+          void backupToDrive()
+        } catch {
+          // canceló: el banner sigue visible
+        } finally {
+          setBusy(false)
+        }
+      }}
+    >
+      {busy ? 'Reconectando…' : 'Sesión de Google expirada — toca para reconectar'}
+    </button>
+  )
 }
 
 function ThemeEffect() {
@@ -166,6 +211,7 @@ export default function App() {
   return (
     <AppProvider>
       <ThemeEffect />
+      <ReconnectBanner />
       <Shell />
     </AppProvider>
   )

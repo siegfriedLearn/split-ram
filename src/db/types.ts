@@ -161,6 +161,8 @@ export interface Settings {
   /** Archivo de respaldo completo en Drive (incluye los gastos sin grupo). */
   backupFileId?: string | null
   lastBackupAt?: string | null
+  /** Notificaciones del sistema cuando la sync trae cambios de otros miembros. */
+  notifyChanges?: boolean
 }
 
 export const SUPPORTED_CURRENCIES = [

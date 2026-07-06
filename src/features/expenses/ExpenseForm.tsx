@@ -24,6 +24,7 @@ import { useDriveImage } from '../../hooks/useDriveImage'
 import { driveViewUrl } from '../../services/sync/assets'
 import { notifyGroupMutation } from '../../services/sync/groupSync'
 import { scheduleBackup } from '../../services/sync/backup'
+import { ensureFreshToken } from '../../services/google/auth'
 
 const METHOD_LABELS: Array<{ value: SplitMethod; label: string }> = [
   { value: 'equal', label: 'Iguales' },
@@ -252,6 +253,8 @@ export function ExpenseForm({
 
   async function handleSave() {
     setError('')
+    // dentro del gesto del clic: renueva el token de Google si está por vencer
+    ensureFreshToken()
     try {
       if (Number.isNaN(amountCents) || amountCents <= 0) {
         throw new Error('Ingresa un monto válido mayor a cero')

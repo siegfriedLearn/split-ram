@@ -78,6 +78,27 @@ export function hasValidToken(): boolean {
   return Boolean(c && c.expiresAt - 60_000 > Date.now())
 }
 
+/**
+ * Renueva el token si está por vencer (o vencido), aprovechando un gesto del
+ * usuario (guardar un gasto, abrir un modal…). Para cuentas que ya autorizaron,
+ * el popup de Google se auto-cierra al instante — renovación invisible.
+ * Fire-and-forget: nunca bloquea ni lanza.
+ */
+export function ensureFreshToken(marginMs = 10 * 60_000): void {
+  const c = readCache()
+  if (c && c.expiresAt - marginMs > Date.now()) return // aún fresco
+  void (async () => {
+    const settings = await db.settings.get('app')
+    if (!settings?.googleEmail) return // nunca conectó: no molestar
+    try {
+      await getAccessToken(true)
+      logDebug('auth', 'token renovado en segundo plano')
+    } catch {
+      // canceló o falló: el banner de reconexión lo resolverá después
+    }
+  })()
+}
+
 let gisPromise: Promise<void> | null = null
 
 function loadGis(): Promise<void> {

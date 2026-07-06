@@ -30,6 +30,8 @@ import {
 } from './serialization'
 import { nowISO } from '../../utils/id'
 import { logDebug } from '../../utils/logger'
+import { notifyGroupChanges } from '../notifications'
+import { formatMoney } from '../../utils/format'
 
 // ---------- utilidades ----------
 
@@ -216,6 +218,20 @@ async function doSync(groupId: string, interactive: boolean): Promise<void> {
     await db.groups.update(groupId, {
       share: { ...share, lastSyncAt: nowISO(), lastError: null },
     })
+
+    // Notifica cambios traídos de otros miembros (no en el primer pull del grupo)
+    const incoming = recE.toLocal.length + recS.toLocal.length
+    if (share.lastSyncAt && incoming > 0) {
+      let summary = `${incoming} cambio${incoming === 1 ? '' : 's'} nuevo${incoming === 1 ? '' : 's'}`
+      if (recE.toLocal.length === 1 && recS.toLocal.length === 0) {
+        const e = recE.toLocal[0]
+        const payer = (await db.persons.get(e.paidBy[0]?.personId ?? ''))?.name ?? 'Alguien'
+        summary = e.deletedAt
+          ? `Se eliminó "${e.description}"`
+          : `${payer}: "${e.description}" · ${formatMoney(e.amountCents, e.currency)}`
+      }
+      void notifyGroupChanges(group!.name, summary)
+    }
   } catch (e) {
     if (e instanceof NeedsAuthError && !interactive) {
       // Sin sesión: no molesta con popups, pero deja el motivo visible en la tarjeta

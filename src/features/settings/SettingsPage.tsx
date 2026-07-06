@@ -12,6 +12,11 @@ import { isGoogleConfigured } from '../../services/google/config'
 import { connectGoogle, disconnectGoogle } from '../../services/google/auth'
 import { findMyGroups } from '../../services/sync/groupSync'
 import { backupToDrive } from '../../services/sync/backup'
+import {
+  disableNotifications,
+  enableNotifications,
+  notificationsSupported,
+} from '../../services/notifications'
 import { clearDebugLog, getDebugLog } from '../../utils/logger'
 
 const FREQ_LABELS = { weekly: 'Semanal', monthly: 'Mensual', yearly: 'Anual' }
@@ -200,6 +205,26 @@ export function SettingsPage() {
                 {backingUp ? 'Respaldando…' : 'Respaldar ahora'}
               </button>
             </div>
+            {notificationsSupported() && (
+              <label className="flex items-center gap-2 border-t border-slate-100 pt-2 text-sm dark:border-slate-800">
+                <input
+                  type="checkbox"
+                  checked={Boolean(settings.notifyChanges)}
+                  onChange={async (e) => {
+                    if (e.target.checked) {
+                      const ok = await enableNotifications()
+                      if (!ok)
+                        setMessage(
+                          'El navegador no dio permiso de notificaciones (revisa la configuración del sitio)',
+                        )
+                    } else {
+                      await disableNotifications()
+                    }
+                  }}
+                />
+                <span className="flex-1">Notificarme cuando otros agreguen gastos</span>
+              </label>
+            )}
           </div>
         ) : (
           <button
