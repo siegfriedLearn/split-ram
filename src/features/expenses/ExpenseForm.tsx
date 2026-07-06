@@ -23,6 +23,7 @@ import { scanReceipt } from '../../services/ocr'
 import { useDriveImage } from '../../hooks/useDriveImage'
 import { driveViewUrl } from '../../services/sync/assets'
 import { notifyGroupMutation } from '../../services/sync/groupSync'
+import { scheduleBackup } from '../../services/sync/backup'
 
 const METHOD_LABELS: Array<{ value: SplitMethod; label: string }> = [
   { value: 'equal', label: 'Iguales' },
@@ -386,6 +387,7 @@ export function ExpenseForm({
       // dispara la sincronización del grupo compartido afectado (y el anterior si cambió)
       notifyGroupMutation(groupId || null)
       if (expense?.groupId && expense.groupId !== groupId) notifyGroupMutation(expense.groupId)
+      scheduleBackup() // respalda en Drive (incluye gastos sin grupo)
       onClose()
     } catch (e) {
       setError(e instanceof Error ? e.message : 'No se pudo guardar el gasto')
@@ -398,6 +400,7 @@ export function ExpenseForm({
     if (!window.confirm('¿Eliminar este gasto?')) return
     await db.expenses.update(expense.id, { deletedAt: nowISO(), ...touched() })
     notifyGroupMutation(expense.groupId)
+    scheduleBackup()
     onClose()
   }
 

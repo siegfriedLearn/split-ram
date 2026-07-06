@@ -130,6 +130,12 @@ export const IconArrowRight = (p: IconProps) => (
   </Icon>
 )
 
+export const IconArrowLeft = (p: IconProps) => (
+  <Icon {...p}>
+    <path d="M19 12H5m6 6-6-6 6-6" />
+  </Icon>
+)
+
 export const IconSparkles = (p: IconProps) => (
   <Icon {...p}>
     <path d="m12 3-1.9 5.8a2 2 0 0 1-1.3 1.3L3 12l5.8 1.9a2 2 0 0 1 1.3 1.3L12 21l1.9-5.8a2 2 0 0 1 1.3-1.3L21 12l-5.8-1.9a2 2 0 0 1-1.3-1.3L12 3Z" />

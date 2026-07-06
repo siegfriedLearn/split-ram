@@ -15,6 +15,7 @@ import {
 } from '../../utils/format'
 import { nowISO, todayISO } from '../../utils/id'
 import { notifyGroupMutation } from '../../services/sync/groupSync'
+import { scheduleBackup } from '../../services/sync/backup'
 
 /** Balances, deudas simplificadas y pagos de un grupo ('none' = gastos sin grupo). */
 export function GroupBalances({ scope }: { scope: string }) {
@@ -51,6 +52,7 @@ export function GroupBalances({ scope }: { scope: string }) {
     const settlement = await db.settlements.get(id)
     await db.settlements.update(id, { deletedAt: nowISO(), ...touched() })
     notifyGroupMutation(settlement?.groupId)
+    scheduleBackup()
   }
 
   const base = settings.baseCurrency
@@ -223,6 +225,7 @@ function SettleForm({
       date,
     })
     notifyGroupMutation(groupId)
+    scheduleBackup()
     onClose()
   }
 

@@ -203,6 +203,25 @@ export async function uploadToFolder(
   return data.id
 }
 
+/** Sobrescribe el contenido de un archivo existente en Drive (upload media). */
+export async function updateFileContent(fileId: string, blob: Blob, token: string): Promise<void> {
+  const res = await fetch(
+    `https://www.googleapis.com/upload/drive/v3/files/${fileId}?uploadType=media`,
+    {
+      method: 'PATCH',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': blob.type || 'application/octet-stream',
+      },
+      body: blob,
+    },
+  )
+  if (!res.ok) {
+    logDebug('api', `update file ${fileId} → ${res.status}`)
+    throw new Error(res.status === 401 ? 'La sesión de Google expiró' : 'No se pudo actualizar el respaldo')
+  }
+}
+
 /** Hace un archivo visible por link ("cualquiera con el enlace, lector"). */
 export async function makeFilePublic(fileId: string, token: string): Promise<void> {
   await gfetch(`${DRIVE_API}/files/${fileId}/permissions`, token, {

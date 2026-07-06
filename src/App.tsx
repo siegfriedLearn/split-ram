@@ -2,6 +2,7 @@ import { useEffect, useState, type ReactNode } from 'react'
 import { AppProvider, useApp } from './state/AppContext'
 import { materializeRecurring } from './services/recurringService'
 import { syncAllSharedGroups } from './services/sync/groupSync'
+import { backupToDrive } from './services/sync/backup'
 import { JoinGroupPage } from './features/groups/JoinGroupPage'
 import { GroupDetailPage } from './features/groups/GroupDetailPage'
 import { IconChart, IconCog, IconReceipt, IconUsers } from './components/icons'
@@ -68,9 +69,10 @@ function Shell() {
   const tab = route.tab
 
   useEffect(() => {
-    // Al abrir: materializa recurrentes y sincroniza grupos compartidos
+    // Al abrir: materializa recurrentes, sincroniza grupos y respalda en Drive
     void materializeRecurring()
     void syncAllSharedGroups()
+    void backupToDrive()
     // Polling cada 60 s con la pestaña visible + sync al volver a ella
     const interval = setInterval(() => {
       if (document.visibilityState === 'visible') void syncAllSharedGroups()

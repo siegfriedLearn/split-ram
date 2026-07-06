@@ -158,6 +158,9 @@ export interface Settings {
   mePersonId: UUID | null
   /** Email de la cuenta Google conectada (solo informativo). */
   googleEmail?: string | null
+  /** Archivo de respaldo completo en Drive (incluye los gastos sin grupo). */
+  backupFileId?: string | null
+  lastBackupAt?: string | null
 }
 
 export const SUPPORTED_CURRENCIES = [

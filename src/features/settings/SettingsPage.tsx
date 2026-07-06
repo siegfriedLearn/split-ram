@@ -5,12 +5,13 @@ import { useExpenses, useRecurringRules, useSettlements } from '../../db/hooks'
 import { useApp } from '../../state/AppContext'
 import { Field } from '../../components/ui'
 import { IconDownload, IconRepeat, IconTrash, IconUpload } from '../../components/icons'
-import { formatDate, formatMoney } from '../../utils/format'
+import { formatDate, formatMoney, timeAgo } from '../../utils/format'
 import { nowISO } from '../../utils/id'
 import type { ExportContext } from '../export/exporters'
 import { isGoogleConfigured } from '../../services/google/config'
 import { connectGoogle, disconnectGoogle } from '../../services/google/auth'
 import { findMyGroups } from '../../services/sync/groupSync'
+import { backupToDrive } from '../../services/sync/backup'
 import { clearDebugLog, getDebugLog } from '../../utils/logger'
 
 const FREQ_LABELS = { weekly: 'Semanal', monthly: 'Mensual', yearly: 'Anual' }
@@ -23,6 +24,7 @@ export function SettingsPage() {
   const [meName, setMeName] = useState(me?.name ?? 'Yo')
   const [importing, setImporting] = useState(false)
   const [finding, setFinding] = useState(false)
+  const [backingUp, setBackingUp] = useState(false)
   const [message, setMessage] = useState('')
   const importRef = useRef<HTMLInputElement>(null)
 
@@ -174,6 +176,30 @@ export function SettingsPage() {
             >
               {finding ? 'Buscando…' : 'Buscar mis grupos en Drive'}
             </button>
+            <div className="flex items-center gap-2 border-t border-slate-100 pt-2 dark:border-slate-800">
+              <p className="flex-1 text-xs text-slate-400">
+                Respaldo completo (incluye gastos sin grupo):{' '}
+                {settings.lastBackupAt ? timeAgo(settings.lastBackupAt) : 'sin respaldar aún'}
+              </p>
+              <button
+                className="shrink-0 text-xs font-semibold text-brand-600 disabled:opacity-50"
+                disabled={backingUp}
+                onClick={async () => {
+                  setBackingUp(true)
+                  setMessage('')
+                  try {
+                    const ok = await backupToDrive(true)
+                    setMessage(ok ? 'Respaldo actualizado en Drive ✅' : 'No se pudo respaldar')
+                  } catch (e) {
+                    setMessage(e instanceof Error ? e.message : 'No se pudo respaldar')
+                  } finally {
+                    setBackingUp(false)
+                  }
+                }}
+              >
+                {backingUp ? 'Respaldando…' : 'Respaldar ahora'}
+              </button>
+            </div>
           </div>
         ) : (
           <button

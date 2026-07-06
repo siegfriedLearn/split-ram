@@ -2,6 +2,24 @@ import { useEffect, useState } from 'react'
 import { db } from '../db/db'
 import { drivePublicImageUrl, getImageUrl } from '../services/sync/assets'
 
+/** Posición de scroll de la ventana (para encabezados que se colapsan). */
+export function useScrollY(): number {
+  const [y, setY] = useState(typeof window !== 'undefined' ? window.scrollY : 0)
+  useEffect(() => {
+    let raf = 0
+    const onScroll = () => {
+      cancelAnimationFrame(raf)
+      raf = requestAnimationFrame(() => setY(window.scrollY))
+    }
+    window.addEventListener('scroll', onScroll, { passive: true })
+    return () => {
+      cancelAnimationFrame(raf)
+      window.removeEventListener('scroll', onScroll)
+    }
+  }, [])
+  return y
+}
+
 /**
  * URL de imagen: primero la copia local (tabla receipts), luego la caché de
  * Drive. Con `publicFallback` (portadas, que son públicas por link) usa la URL

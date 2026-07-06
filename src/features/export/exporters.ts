@@ -253,9 +253,10 @@ function base64ToBlob(base64: string, mimeType: string): Blob {
   return new Blob([arr], { type: mimeType })
 }
 
-export async function exportBackupJSON() {
-  const receipts = await db.receipts.toArray()
-  const backup: BackupFile = {
+/** Construye el objeto de respaldo. `includeReceipts=false` lo deja liviano (sin imágenes). */
+export async function buildBackup(includeReceipts = true): Promise<BackupFile> {
+  const receipts = includeReceipts ? await db.receipts.toArray() : []
+  return {
     app: 'ram-split',
     version: 1,
     exportedAt: new Date().toISOString(),
@@ -280,6 +281,10 @@ export async function exportBackupJSON() {
       ),
     },
   }
+}
+
+export async function exportBackupJSON() {
+  const backup = await buildBackup(true)
   downloadBlob(
     new Blob([JSON.stringify(backup)], { type: 'application/json' }),
     `ram-split-respaldo-${todayISO()}.json`,

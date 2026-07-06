@@ -5,6 +5,7 @@ import { useApp } from '../../state/AppContext'
 import { useExpenses, useSettlements } from '../../db/hooks'
 import { EmptyState, SegmentedControl } from '../../components/ui'
 import {
+  IconArrowLeft,
   IconCloud,
   IconPencil,
   IconPlus,
@@ -18,12 +19,12 @@ import { computeNetBalances } from '../../domain/balances'
 import { simplifyDebts } from '../../domain/simplifyDebts'
 import { nowISO } from '../../utils/id'
 import { syncGroup } from '../../services/sync/groupSync'
-import { useDriveImage } from '../../hooks/useDriveImage'
+import { useDriveImage, useScrollY } from '../../hooks/useDriveImage'
 import { ExpenseForm } from '../expenses/ExpenseForm'
 import { ExpenseList } from '../expenses/ExpenseList'
 import { GroupBalances } from '../balances/GroupBalances'
 import { ShareGroupModal } from './ShareGroupModal'
-import { GroupForm, GROUP_TYPES } from './GroupsPage'
+import { GroupForm } from './GroupsPage'
 
 /** Detalle de un grupo: sus gastos y sus balances. `groupId === 'none'` = sin grupo. */
 export function GroupDetailPage({ groupId }: { groupId: string }) {
@@ -38,7 +39,6 @@ export function GroupDetailPage({ groupId }: { groupId: string }) {
 
   const isNone = groupId === 'none'
   const group = isNone ? undefined : groupById.get(groupId)
-  const typeInfo = GROUP_TYPES.find((t) => t.value === group?.type)
   const groupImage = useDriveImage(group?.imageLocalId, group?.imageDriveId, true)
 
   const scoped = useMemo(
@@ -85,57 +85,61 @@ export function GroupDetailPage({ groupId }: { groupId: string }) {
     )
   }
 
+  // La portada se desvanece al hacer scroll (0 arriba → 1 colapsado)
+  const scrollY = useScrollY()
+  const collapse = Math.min(1, scrollY / 200)
+  const heroHeight = 176 - collapse * (176 - 64) // 176px → 64px
+  const coverOpacity = 1 - collapse * 0.85
+
+  const iconBtn =
+    'rounded-full bg-black/30 p-2 text-white backdrop-blur-sm transition hover:bg-black/50'
+
   return (
     <div className="space-y-4">
-      {/* Encabezado */}
-      <div className="flex items-center gap-3">
-        <button
-          onClick={goBack}
-          className="rounded-xl bg-slate-100 px-3 py-2 text-sm font-bold text-slate-600 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-300"
-          aria-label="Volver a grupos"
-        >
-          ←
-        </button>
-        <div className="flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-xl bg-slate-100 text-xl dark:bg-slate-800">
-          {groupImage ? (
-            <img src={groupImage} alt="" className="h-full w-full object-cover" />
-          ) : isNone ? (
-            '👛'
-          ) : (
-            (typeInfo?.icon ?? '📦')
+      {/* Hero con portada de fondo (se colapsa/desvanece al bajar) */}
+      <div
+        className="sticky top-0 z-20 -mx-4 -mt-4 overflow-hidden sm:-mx-6 sm:-mt-4"
+        style={{ height: heroHeight }}
+      >
+        {/* fondo: portada o degradado del color de marca */}
+        {groupImage ? (
+          <img
+            src={groupImage}
+            alt=""
+            className="absolute inset-0 h-full w-full object-cover"
+            style={{ opacity: coverOpacity }}
+          />
+        ) : (
+          <div
+            className="absolute inset-0 bg-gradient-to-br from-brand-600 to-brand-800"
+            style={{ opacity: coverOpacity }}
+          />
+        )}
+        {/* scrim para legibilidad + base sólida cuando la portada se desvanece */}
+        <div className="absolute inset-0 bg-slate-950" style={{ opacity: collapse * 0.9 }} />
+        <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-black/20 to-black/40" />
+
+        {/* barra superior: volver + acciones (siempre visibles) */}
+        <div className="absolute inset-x-0 top-0 flex items-center gap-2 p-3">
+          <button onClick={goBack} className={iconBtn} aria-label="Volver a grupos">
+            <IconArrowLeft size={18} />
+          </button>
+          {collapse > 0.55 && (
+            <span className="truncate text-sm font-bold text-white">
+              {isNone ? 'Sin grupo' : group!.name}
+            </span>
           )}
-        </div>
-        <div className="min-w-0 flex-1">
-          <h2 className="truncate text-lg font-extrabold">{isNone ? 'Sin grupo' : group!.name}</h2>
-          {group?.share && (
-            <p className="flex items-center gap-1 text-xs">
-              <IconCloud size={12} className={group.share.lastError ? 'text-red-400' : 'text-brand-500'} />
-              {group.share.lastError ? (
-                <span className="truncate text-red-500" title={group.share.lastError}>
-                  {group.share.lastError}
-                </span>
-              ) : (
-                <span className="text-slate-400">
-                  {group.share.lastSyncAt
-                    ? `Sincronizado ${timeAgo(group.share.lastSyncAt)}`
-                    : 'Sin sincronizar'}
-                </span>
-              )}
-            </p>
-          )}
-        </div>
-        {group && (
-          <div className="flex gap-1">
-            {group.share && (
+          <div className="ml-auto flex gap-1.5">
+            {group?.share && (
               <button
-                className="rounded-lg p-2 text-brand-500 hover:bg-slate-100 disabled:opacity-50 dark:hover:bg-slate-800"
+                className={iconBtn}
                 disabled={syncing}
                 onClick={async () => {
                   setSyncing(true)
                   try {
                     await syncGroup(group.id, true)
                   } catch {
-                    // el error queda en share.lastError y se muestra en el encabezado
+                    // el error queda en share.lastError y se muestra abajo
                   } finally {
                     setSyncing(false)
                   }
@@ -145,29 +149,47 @@ export function GroupDetailPage({ groupId }: { groupId: string }) {
                 <IconRepeat size={17} className={syncing ? 'animate-spin' : ''} />
               </button>
             )}
-            <button
-              className={`rounded-lg p-2 hover:bg-slate-100 dark:hover:bg-slate-800 ${group.share ? 'text-brand-500' : 'text-slate-400'}`}
-              onClick={() => setShowShare(true)}
-              aria-label="Compartir grupo"
-            >
-              <IconShare size={17} />
-            </button>
-            <button
-              className="rounded-lg p-2 text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800"
-              onClick={() => setShowEdit(true)}
-              aria-label="Editar grupo"
-            >
-              <IconPencil size={17} />
-            </button>
-            <button
-              className="rounded-lg p-2 text-slate-400 hover:bg-red-50 hover:text-red-500 dark:hover:bg-red-950"
-              onClick={deleteGroup}
-              aria-label="Eliminar grupo"
-            >
-              <IconTrash size={17} />
-            </button>
+            {group && (
+              <>
+                <button className={iconBtn} onClick={() => setShowShare(true)} aria-label="Compartir grupo">
+                  <IconShare size={17} />
+                </button>
+                <button className={iconBtn} onClick={() => setShowEdit(true)} aria-label="Editar grupo">
+                  <IconPencil size={17} />
+                </button>
+                <button className={iconBtn} onClick={deleteGroup} aria-label="Eliminar grupo">
+                  <IconTrash size={17} />
+                </button>
+              </>
+            )}
           </div>
-        )}
+        </div>
+
+        {/* título + estado de sync, abajo del hero (se desvanece al colapsar) */}
+        <div
+          className="absolute inset-x-0 bottom-0 p-4"
+          style={{ opacity: 1 - collapse * 1.4 }}
+        >
+          <h2 className="truncate text-2xl font-extrabold text-white drop-shadow">
+            {isNone ? 'Sin grupo' : group!.name}
+          </h2>
+          {group?.share && (
+            <p className="mt-0.5 flex items-center gap-1 text-xs text-white/90">
+              <IconCloud size={12} />
+              {group.share.lastError ? (
+                <span className="truncate" title={group.share.lastError}>
+                  {group.share.lastError}
+                </span>
+              ) : (
+                <span>
+                  {group.share.lastSyncAt
+                    ? `Sincronizado ${timeAgo(group.share.lastSyncAt)}`
+                    : 'Sin sincronizar'}
+                </span>
+              )}
+            </p>
+          )}
+        </div>
       </div>
 
       {/* Resumen de cuentas (estilo Splitwise) */}
