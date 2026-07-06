@@ -11,11 +11,14 @@ interface PickerNamespace {
   picker: {
     DocsView: new (viewId?: string) => {
       setIncludeFolders(v: boolean): unknown
+      setSelectFolderEnabled(v: boolean): unknown
+      setMimeTypes(v: string): unknown
       setMode(mode: string): unknown
     }
     PickerBuilder: new () => PickerBuilder
-    ViewId: { SPREADSHEETS: string }
+    ViewId: { SPREADSHEETS: string; FOLDERS: string; DOCS: string }
     DocsViewMode: { LIST: string }
+    Feature: { MINE_ONLY: string }
     Action: { PICKED: string; CANCEL: string }
   }
 }
@@ -87,21 +90,54 @@ export async function pickSharedSpreadsheet(token: string): Promise<string | nul
   await loadPickerApi()
   const g = (window as unknown as { google: PickerNamespace }).google
   logDebug('picker', 'abriendo selector de hojas de cálculo')
-  return new Promise((resolve) => {
-    const view = new g.picker.DocsView(g.picker.ViewId.SPREADSHEETS)
+  return runPicker(g, token, appId, (view) => {
     view.setIncludeFolders(false)
     view.setMode(g.picker.DocsViewMode.LIST)
+  }, g.picker.ViewId.SPREADSHEETS, 'Elige la hoja del grupo compartido')
+}
+
+/**
+ * Selector de CARPETAS. Al elegir la carpeta del grupo, la app queda autorizada
+ * a la hoja y a las imágenes (recibos/portada) que contiene.
+ */
+export async function pickSharedFolder(token: string): Promise<string | null> {
+  if (!GOOGLE_API_KEY) {
+    throw new Error('Falta configurar VITE_GOOGLE_API_KEY (ver README → Publicar tu propia instancia)')
+  }
+  const appId = googleProjectNumber()
+  if (!appId) throw new Error('Falta configurar VITE_GOOGLE_CLIENT_ID')
+  await loadPickerApi()
+  const g = (window as unknown as { google: PickerNamespace }).google
+  logDebug('picker', 'abriendo selector de carpetas')
+  return runPicker(g, token, appId, (view) => {
+    view.setSelectFolderEnabled(true)
+    view.setMimeTypes('application/vnd.google-apps.folder')
+    view.setMode(g.picker.DocsViewMode.LIST)
+  }, g.picker.ViewId.FOLDERS, 'Elige la carpeta del grupo compartido')
+}
+
+function runPicker(
+  g: PickerNamespace,
+  token: string,
+  appId: string,
+  configure: (view: InstanceType<PickerNamespace['picker']['DocsView']>) => void,
+  viewId: string,
+  title: string,
+): Promise<string | null> {
+  return new Promise((resolve) => {
+    const view = new g.picker.DocsView(viewId)
+    configure(view)
     const picker = new g.picker.PickerBuilder()
       .addView(view)
       .setOAuthToken(token)
       .setDeveloperKey(GOOGLE_API_KEY!)
       .setAppId(appId)
       .setLocale('es')
-      .setTitle('Elige la hoja del grupo compartido')
+      .setTitle(title)
       .setCallback((data) => {
         if (data.action === g.picker.Action.PICKED) {
           const id = data.docs?.[0]?.id ?? null
-          logDebug('picker', `hoja elegida: ${id}`)
+          logDebug('picker', `elegido: ${id}`)
           resolve(id)
         } else if (data.action === g.picker.Action.CANCEL) {
           logDebug('picker', 'selector cancelado')

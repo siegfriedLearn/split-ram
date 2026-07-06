@@ -150,6 +150,75 @@ export interface ShareResult {
   failed: Array<{ email: string; error: string }>
 }
 
+/** Lista las hojas de Ram Split que son hijas de una carpeta (para unirse por carpeta). */
+export async function listFolderSheets(
+  folderId: string,
+  token: string,
+): Promise<Array<{ id: string; name: string }>> {
+  const q = `'${folderId}' in parents and trashed=false and mimeType='application/vnd.google-apps.spreadsheet'`
+  const res = await gfetch<{ files?: Array<{ id: string; name: string }> }>(
+    `${DRIVE_API}/files?q=${encodeURIComponent(q)}&fields=files(id,name)&spaces=drive`,
+    token,
+  )
+  return res.files ?? []
+}
+
+/** Sube un archivo (imagen) a una carpeta con multipart. Devuelve su id en Drive. */
+export async function uploadToFolder(
+  folderId: string,
+  blob: Blob,
+  name: string,
+  token: string,
+): Promise<string> {
+  const boundary = `ramsplit${Math.random().toString(36).slice(2)}`
+  const metadata = {
+    name,
+    parents: [folderId],
+    appProperties: { ramsplit: 'asset' },
+  }
+  const body = new Blob([
+    `--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n`,
+    JSON.stringify(metadata),
+    `\r\n--${boundary}\r\nContent-Type: ${blob.type || 'application/octet-stream'}\r\n\r\n`,
+    blob,
+    `\r\n--${boundary}--`,
+  ])
+  const res = await fetch(
+    'https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id',
+    {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': `multipart/related; boundary=${boundary}`,
+      },
+      body,
+    },
+  )
+  if (!res.ok) {
+    logDebug('api', `upload → ${res.status}`)
+    throw new Error(res.status === 401 ? 'La sesión de Google expiró' : 'No se pudo subir la imagen')
+  }
+  const data = (await res.json()) as { id: string }
+  logDebug('api', `imagen subida a Drive: ${data.id}`)
+  return data.id
+}
+
+/** Descarga un archivo de Drive por id. Devuelve el Blob y su tipo. */
+export async function downloadFile(
+  fileId: string,
+  token: string,
+): Promise<{ blob: Blob; mimeType: string }> {
+  const res = await fetch(`${DRIVE_API}/files/${fileId}?alt=media`, {
+    headers: { Authorization: `Bearer ${token}` },
+  })
+  if (!res.ok) {
+    logDebug('api', `download ${fileId} → ${res.status}`)
+    throw new Error(res.status === 403 || res.status === 404 ? 'Sin acceso a la imagen' : 'No se pudo bajar la imagen')
+  }
+  const blob = await res.blob()
+  return { blob, mimeType: blob.type || 'image/jpeg' }
+}
+
 /** Comparte la hoja como editor con cada email; Google envía el correo de invitación. */
 export async function shareWithEmails(
   fileId: string,

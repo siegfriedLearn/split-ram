@@ -18,6 +18,7 @@ import { computeNetBalances } from '../../domain/balances'
 import { simplifyDebts } from '../../domain/simplifyDebts'
 import { nowISO } from '../../utils/id'
 import { syncGroup } from '../../services/sync/groupSync'
+import { useDriveImage } from '../../hooks/useDriveImage'
 import { ExpenseForm } from '../expenses/ExpenseForm'
 import { ExpenseList } from '../expenses/ExpenseList'
 import { GroupBalances } from '../balances/GroupBalances'
@@ -38,6 +39,7 @@ export function GroupDetailPage({ groupId }: { groupId: string }) {
   const isNone = groupId === 'none'
   const group = isNone ? undefined : groupById.get(groupId)
   const typeInfo = GROUP_TYPES.find((t) => t.value === group?.type)
+  const groupImage = useDriveImage(group?.imageLocalId, group?.imageDriveId)
 
   const scoped = useMemo(
     () =>
@@ -94,8 +96,14 @@ export function GroupDetailPage({ groupId }: { groupId: string }) {
         >
           ←
         </button>
-        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-slate-100 text-xl dark:bg-slate-800">
-          {isNone ? '👛' : (typeInfo?.icon ?? '📦')}
+        <div className="flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-xl bg-slate-100 text-xl dark:bg-slate-800">
+          {groupImage ? (
+            <img src={groupImage} alt="" className="h-full w-full object-cover" />
+          ) : isNone ? (
+            '👛'
+          ) : (
+            (typeInfo?.icon ?? '📦')
+          )}
         </div>
         <div className="min-w-0 flex-1">
           <h2 className="truncate text-lg font-extrabold">{isNone ? 'Sin grupo' : group!.name}</h2>

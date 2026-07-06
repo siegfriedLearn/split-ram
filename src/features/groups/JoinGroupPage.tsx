@@ -5,7 +5,7 @@ import { Avatar } from '../../components/ui'
 import { IconCloud } from '../../components/icons'
 import { isGoogleConfigured } from '../../services/google/config'
 import { connectGoogle, getAccessToken } from '../../services/google/auth'
-import { pickSharedSpreadsheet } from '../../services/google/picker'
+import { pickSharedFolder } from '../../services/google/picker'
 import { adoptIdentity, joinGroup } from '../../services/sync/groupSync'
 
 type Step =
@@ -57,15 +57,8 @@ export function JoinGroupPage({ spreadsheetId }: { spreadsheetId: string }) {
   async function handlePick() {
     try {
       const token = await getAccessToken(true)
-      const picked = await pickSharedSpreadsheet(token)
+      const picked = await pickSharedFolder(token)
       if (!picked) return // canceló: sigue en el paso de elegir
-      if (
-        picked !== spreadsheetId &&
-        !window.confirm(
-          'La hoja elegida no coincide con la del link de invitación. ¿Usar la elegida de todas formas?',
-        )
-      )
-        return
       await joinWith(picked)
     } catch (e) {
       setStep({ kind: 'error', message: e instanceof Error ? e.message : 'No se pudo unir al grupo' })
@@ -115,11 +108,12 @@ export function JoinGroupPage({ spreadsheetId }: { spreadsheetId: string }) {
       {step.kind === 'pick' && (
         <>
           <p className="text-sm leading-relaxed text-slate-500">
-            Un paso más: elige la hoja del grupo en tu Google Drive (aparece en "Compartidos
-            conmigo"). Esto le da acceso a la app <strong>solo a esa hoja</strong>.
+            Un paso más: elige la <strong>carpeta del grupo</strong> en tu Google Drive (aparece
+            en "Compartidos conmigo"). Esto le da acceso a la app a los gastos, recibos e imagen
+            del grupo — y solo a eso.
           </p>
           <button className="btn-primary w-full" onClick={handlePick}>
-            Elegir la hoja compartida
+            Elegir la carpeta compartida
           </button>
           <button className="text-xs font-semibold text-slate-400" onClick={goToGroups}>
             Cancelar

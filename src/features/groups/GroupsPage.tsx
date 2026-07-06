@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useMemo, useRef, useState } from 'react'
 import { db, newEntity, touched, PERSON_COLORS } from '../../db/db'
 import type { Expense, Group, GroupDefaultSplit, GroupType, Person } from '../../db/types'
 import { SUPPORTED_CURRENCIES } from '../../db/types'
@@ -6,6 +6,7 @@ import { useApp } from '../../state/AppContext'
 import { useExpenses, useSettlements } from '../../db/hooks'
 import { Avatar, EmptyState, Field, Modal, SegmentedControl } from '../../components/ui'
 import {
+  IconCamera,
   IconCloud,
   IconPencil,
   IconPlus,
@@ -17,6 +18,7 @@ import { formatMoney } from '../../utils/format'
 import { computeNetBalances } from '../../domain/balances'
 import { notifyGroupMutation } from '../../services/sync/groupSync'
 import { QuickAddPerson } from '../../components/QuickAddPerson'
+import { useDriveImage } from '../../hooks/useDriveImage'
 import { ExpenseForm } from '../expenses/ExpenseForm'
 
 export const GROUP_TYPES: Array<{ value: GroupType; label: string; icon: string }> = [
@@ -58,7 +60,7 @@ function useMyBalances() {
 }
 
 export function GroupsPage() {
-  const { groups, personById, settings } = useApp()
+  const { groups, settings } = useApp()
   const { perGroup, overall, hasNoGroup } = useMyBalances()
   const [editingGroup, setEditingGroup] = useState<Group | 'new' | null>(null)
   const [showPersons, setShowPersons] = useState(false)
@@ -108,40 +110,13 @@ export function GroupsPage() {
       )}
 
       <div className="space-y-2.5">
-        {groups.map((g) => {
-          const typeInfo = GROUP_TYPES.find((t) => t.value === g.type)
-          const myBalance = perGroup.get(g.id) ?? 0
-          return (
-            <button
-              key={g.id}
-              onClick={() => (location.hash = `#/grupos/${g.id}`)}
-              className="card flex w-full items-center gap-3 p-4 text-left transition hover:ring-2 hover:ring-brand-500/40"
-            >
-              <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-slate-100 text-2xl dark:bg-slate-800">
-                {typeInfo?.icon ?? '📦'}
-              </div>
-              <div className="min-w-0 flex-1">
-                <p className="flex items-center gap-1.5 truncate font-bold">
-                  {g.name}
-                  {g.share && (
-                    <IconCloud
-                      size={13}
-                      className={`shrink-0 ${g.share.lastError ? 'text-red-400' : 'text-brand-500'}`}
-                    />
-                  )}
-                </p>
-                <div className="mt-0.5">{balanceLabel(myBalance)}</div>
-              </div>
-              <div className="flex -space-x-2">
-                {g.memberIds.slice(0, 4).map((id) => (
-                  <div key={id} className="rounded-full ring-2 ring-white dark:ring-slate-900">
-                    <Avatar person={personById.get(id)} size={24} />
-                  </div>
-                ))}
-              </div>
-            </button>
-          )
-        })}
+        {groups.map((g) => (
+          <GroupCard
+            key={g.id}
+            group={g}
+            balance={balanceLabel(perGroup.get(g.id) ?? 0)}
+          />
+        ))}
 
         {hasNoGroup && (
           <button
@@ -177,6 +152,47 @@ export function GroupsPage() {
       {showPersons && <PersonsModal onClose={() => setShowPersons(false)} />}
       {addingExpense && <ExpenseForm expense={null} onClose={() => setAddingExpense(false)} />}
     </div>
+  )
+}
+
+// ---------- Tarjeta de grupo (con portada) ----------
+
+function GroupCard({ group, balance }: { group: Group; balance: React.ReactNode }) {
+  const { personById } = useApp()
+  const typeInfo = GROUP_TYPES.find((t) => t.value === group.type)
+  const imageUrl = useDriveImage(group.imageLocalId, group.imageDriveId)
+  return (
+    <button
+      onClick={() => (location.hash = `#/grupos/${group.id}`)}
+      className="card flex w-full items-center gap-3 p-4 text-left transition hover:ring-2 hover:ring-brand-500/40"
+    >
+      <div className="flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded-2xl bg-slate-100 text-2xl dark:bg-slate-800">
+        {imageUrl ? (
+          <img src={imageUrl} alt="" className="h-full w-full object-cover" />
+        ) : (
+          (typeInfo?.icon ?? '📦')
+        )}
+      </div>
+      <div className="min-w-0 flex-1">
+        <p className="flex items-center gap-1.5 truncate font-bold">
+          {group.name}
+          {group.share && (
+            <IconCloud
+              size={13}
+              className={`shrink-0 ${group.share.lastError ? 'text-red-400' : 'text-brand-500'}`}
+            />
+          )}
+        </p>
+        <div className="mt-0.5">{balance}</div>
+      </div>
+      <div className="flex -space-x-2">
+        {group.memberIds.slice(0, 4).map((id) => (
+          <div key={id} className="rounded-full ring-2 ring-white dark:ring-slate-900">
+            <Avatar person={personById.get(id)} size={24} />
+          </div>
+        ))}
+      </div>
+    </button>
   )
 }
 
@@ -262,9 +278,18 @@ export function GroupForm({ group, onClose }: { group: Group | null; onClose: ()
       Object.entries(group?.defaultSplit?.values ?? {}).map(([k, v]) => [k, String(v)]),
     ),
   )
+  const [imageLocalId, setImageLocalId] = useState<string | null>(group?.imageLocalId ?? null)
+  const imgInputRef = useRef<HTMLInputElement>(null)
+  const imageUrl = useDriveImage(imageLocalId, imageLocalId ? null : group?.imageDriveId)
   const [error, setError] = useState('')
 
   const percentSum = memberIds.reduce((s, id) => s + (Number(splitValues[id]) || 0), 0)
+
+  async function onPickImage(file: File) {
+    const rec = { ...newEntity(), blob: file, mimeType: file.type }
+    await db.receipts.add(rec)
+    setImageLocalId(rec.id)
+  }
 
   async function save() {
     if (!name.trim()) {
@@ -289,7 +314,17 @@ export function GroupForm({ group, onClose }: { group: Group | null; onClose: ()
       }
       defaultSplit = { method: splitMode, values }
     }
-    const data = { name: name.trim(), type, currency, memberIds, defaultSplit }
+    // Si cambió la imagen, se borra imageDriveId para que la sync la vuelva a subir
+    const imageChanged = imageLocalId !== (group?.imageLocalId ?? null)
+    const data = {
+      name: name.trim(),
+      type,
+      currency,
+      memberIds,
+      defaultSplit,
+      imageLocalId,
+      ...(imageChanged ? { imageDriveId: null } : {}),
+    }
     if (group) {
       await db.groups.update(group.id, { ...data, ...touched() })
       notifyGroupMutation(group.share ? group.id : null)
@@ -316,6 +351,41 @@ export function GroupForm({ group, onClose }: { group: Group | null; onClose: ()
     >
       <div className="space-y-4">
         {error && <p className="text-sm font-medium text-red-600">{error}</p>}
+        <Field label="Portada (opcional)">
+          <input
+            ref={imgInputRef}
+            type="file"
+            accept="image/*"
+            className="hidden"
+            onChange={(e) => {
+              const f = e.target.files?.[0]
+              if (f) void onPickImage(f)
+            }}
+          />
+          <button
+            type="button"
+            onClick={() => imgInputRef.current?.click()}
+            className="relative flex h-28 w-full items-center justify-center overflow-hidden rounded-2xl bg-slate-100 dark:bg-slate-800"
+          >
+            {imageUrl ? (
+              <img src={imageUrl} alt="Portada" className="h-full w-full object-cover" />
+            ) : (
+              <span className="flex flex-col items-center gap-1 text-slate-400">
+                <IconCamera size={22} />
+                <span className="text-xs font-medium">Añadir foto del grupo</span>
+              </span>
+            )}
+          </button>
+          {imageLocalId && (
+            <button
+              type="button"
+              className="mt-1.5 text-xs font-semibold text-red-500"
+              onClick={() => setImageLocalId(null)}
+            >
+              Quitar portada
+            </button>
+          )}
+        </Field>
         <Field label="Nombre">
           <input
             className="input"

@@ -20,6 +20,7 @@ import { centsToInput, formatMoney, parseAmountToCents } from '../../utils/forma
 import { nowISO, todayISO, uuid } from '../../utils/id'
 import { getRate } from '../../services/fx'
 import { scanReceipt } from '../../services/ocr'
+import { useDriveImage } from '../../hooks/useDriveImage'
 import { notifyGroupMutation } from '../../services/sync/groupSync'
 
 const METHOD_LABELS: Array<{ value: SplitMethod; label: string }> = [
@@ -117,7 +118,9 @@ export function ExpenseForm({
 
   const [notes, setNotes] = useState(expense?.notes ?? '')
   const [receiptFile, setReceiptFile] = useState<File | null>(null)
-  const [keepReceipt, setKeepReceipt] = useState(Boolean(expense?.receiptId))
+  const [keepReceipt, setKeepReceipt] = useState(
+    Boolean(expense?.receiptId || expense?.receiptDriveId),
+  )
   const [ocrBusy, setOcrBusy] = useState(false)
   const [recurring, setRecurring] = useState<RecurringFrequency | ''>('')
   const [error, setError] = useState('')
@@ -134,16 +137,20 @@ export function ExpenseForm({
     async () => (expense?.receiptId ? db.receipts.get(expense.receiptId) : undefined),
     [expense?.receiptId],
   )
-  const receiptPreviewUrl = useMemo(() => {
+  const localPreviewUrl = useMemo(() => {
     if (receiptFile) return URL.createObjectURL(receiptFile)
     if (keepReceipt && existingReceipt) return URL.createObjectURL(existingReceipt.blob)
     return null
   }, [receiptFile, keepReceipt, existingReceipt])
   useEffect(() => {
     return () => {
-      if (receiptPreviewUrl) URL.revokeObjectURL(receiptPreviewUrl)
+      if (localPreviewUrl) URL.revokeObjectURL(localPreviewUrl)
     }
-  }, [receiptPreviewUrl])
+  }, [localPreviewUrl])
+  // Recibo que subió otro miembro: sin copia local, se baja de Drive
+  const needsDriveReceipt = keepReceipt && !localPreviewUrl && Boolean(expense?.receiptDriveId)
+  const driveReceiptUrl = useDriveImage(null, needsDriveReceipt ? expense?.receiptDriveId : null)
+  const receiptPreviewUrl = localPreviewUrl ?? driveReceiptUrl
 
   // Al elegir grupo, los participantes pasan a ser sus miembros y se aplica
   // su división predeterminada (si la tiene)
@@ -317,10 +324,13 @@ export function ExpenseForm({
       setSaving(true)
 
       let receiptId = keepReceipt ? (expense?.receiptId ?? null) : null
+      // conserva/limpia la copia en Drive junto con la local
+      let receiptDriveId = keepReceipt ? (expense?.receiptDriveId ?? null) : null
       if (receiptFile) {
         const receipt = { ...newEntity(), blob: receiptFile, mimeType: receiptFile.type }
         await db.receipts.add(receipt)
         receiptId = receipt.id
+        receiptDriveId = null // recibo nuevo: la sync lo vuelve a subir
       }
 
       const data = {
@@ -338,6 +348,7 @@ export function ExpenseForm({
         items: finalItems,
         notes: notes.trim() || undefined,
         receiptId,
+        receiptDriveId,
       }
 
       if (expense) {
@@ -737,15 +748,17 @@ export function ExpenseForm({
               <IconCamera size={16} /> Foto
             </button>
             {(receiptFile || (keepReceipt && existingReceipt)) && (
+              <button
+                type="button"
+                className="btn-secondary"
+                onClick={handleScan}
+                disabled={ocrBusy}
+              >
+                <IconSparkles size={16} /> {ocrBusy ? 'Escaneando…' : 'Escanear (OCR)'}
+              </button>
+            )}
+            {(receiptFile || keepReceipt) && (
               <>
-                <button
-                  type="button"
-                  className="btn-secondary"
-                  onClick={handleScan}
-                  disabled={ocrBusy}
-                >
-                  <IconSparkles size={16} /> {ocrBusy ? 'Escaneando…' : 'Escanear (OCR)'}
-                </button>
                 <button
                   type="button"
                   className="p-1 text-slate-400 hover:text-red-500"

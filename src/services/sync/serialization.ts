@@ -117,6 +117,7 @@ export interface GroupMeta {
   type: GroupType
   currency: string
   defaultSplit: GroupDefaultSplit | null
+  imageDriveId?: string | null
 }
 
 export function groupToMeta(g: Group): string {
@@ -129,6 +130,7 @@ export function groupToMeta(g: Group): string {
     type: g.type,
     currency: g.currency,
     defaultSplit: g.defaultSplit ?? null,
+    imageDriveId: g.imageDriveId ?? null,
   }
   return JSON.stringify(meta)
 }

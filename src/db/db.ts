@@ -5,6 +5,7 @@ import type {
   Category,
   Expense,
   Receipt,
+  DriveBlob,
   Settlement,
   RecurringRule,
   Budget,
@@ -18,6 +19,7 @@ export class RamSplitDB extends Dexie {
   categories!: Table<Category, string>
   expenses!: Table<Expense, string>
   receipts!: Table<Receipt, string>
+  driveBlobs!: Table<DriveBlob, string>
   settlements!: Table<Settlement, string>
   recurringRules!: Table<RecurringRule, string>
   budgets!: Table<Budget, string>
@@ -35,6 +37,10 @@ export class RamSplitDB extends Dexie {
       recurringRules: 'id, nextDate',
       budgets: 'id, categoryId',
       settings: 'id',
+    })
+    // v2: caché local de archivos de Drive (recibos e imágenes de grupo)
+    this.version(2).stores({
+      driveBlobs: 'id',
     })
     this.on('populate', () => seed(this))
   }

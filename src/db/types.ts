@@ -27,6 +27,8 @@ export interface GroupDefaultSplit {
 /** Vínculo de un grupo con su hoja de cálculo compartida en Google Sheets. */
 export interface GroupShare {
   spreadsheetId: string
+  /** Carpeta del grupo en Drive; al compartirla, los miembros ven recibos e imagen. */
+  folderId?: string | null
   role: 'owner' | 'member'
   lastSyncAt: string | null
   /** Último error de sincronización (null si la última sync fue exitosa). */
@@ -40,6 +42,10 @@ export interface Group extends BaseEntity {
   memberIds: UUID[]
   defaultSplit?: GroupDefaultSplit | null
   share?: GroupShare | null
+  /** Portada del grupo: id del archivo en Drive (si está compartido) para sincronizar. */
+  imageDriveId?: string | null
+  /** Copia local de la portada (id en la tabla receipts) antes/después de subirla. */
+  imageLocalId?: string | null
 }
 
 export interface Category extends BaseEntity {
@@ -82,12 +88,23 @@ export interface Expense extends BaseEntity {
   items?: ExpenseItem[]
   notes?: string
   receiptId?: UUID | null
+  /** Id del recibo en Drive (si el grupo está compartido); se sincroniza. */
+  receiptDriveId?: string | null
   recurringRuleId?: UUID | null
 }
 
 export interface Receipt extends BaseEntity {
   blob: Blob
   mimeType: string
+}
+
+/** Caché local de un archivo bajado de Drive (recibo o imagen de grupo). */
+export interface DriveBlob {
+  /** id del archivo en Drive. */
+  id: string
+  blob: Blob
+  mimeType: string
+  fetchedAt: string
 }
 
 export interface Settlement extends BaseEntity {

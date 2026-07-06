@@ -6,11 +6,14 @@ import {
   createSpreadsheet,
   ensureFolder,
   fileIntoFolder,
+  listFolderSheets,
   listRamSplitSpreadsheets,
   overwriteTab,
   shareWithEmails,
+  uploadToFolder,
   type ShareResult,
 } from '../google/sheets'
+import { compressImage } from '../../utils/image'
 import { mergedState, reconcile } from './merge'
 import {
   SHEET_TABS,
@@ -52,6 +55,21 @@ async function ensureCategories(refs: CategoryRef[]): Promise<Map<string, UUID>>
   return byName
 }
 
+/** Sube un blob local (de la tabla receipts) a la carpeta; cachea la copia bajada. */
+async function uploadLocalImage(
+  localId: string,
+  folderId: string,
+  name: string,
+  token: string,
+): Promise<string | null> {
+  const local = await db.receipts.get(localId)
+  if (!local) return null
+  const compressed = await compressImage(local.blob)
+  const driveId = await uploadToFolder(folderId, compressed, name, token)
+  await db.driveBlobs.put({ id: driveId, blob: compressed, mimeType: compressed.type, fetchedAt: nowISO() })
+  return driveId
+}
+
 export function buildJoinLink(spreadsheetId: string): string {
   return `${location.origin}${location.pathname}#/unirse/${spreadsheetId}`
 }
@@ -69,11 +87,39 @@ export function syncGroup(groupId: string, interactive = false): Promise<void> {
 }
 
 async function doSync(groupId: string, interactive: boolean): Promise<void> {
-  const group = await db.groups.get(groupId)
+  let group = await db.groups.get(groupId)
   if (!group?.share) return
   const share = group.share
   try {
     const token = await getAccessToken(interactive)
+
+    // Sube imágenes locales pendientes (recibos y portada) a la carpeta del grupo;
+    // marca receiptDriveId/imageDriveId con touched para que se propaguen luego.
+    if (share.folderId) {
+      if (group.imageLocalId && !group.imageDriveId) {
+        const driveId = await uploadLocalImage(
+          group.imageLocalId,
+          share.folderId,
+          `portada-${group.name}`,
+          token,
+        ).catch(() => null)
+        if (driveId) await db.groups.update(groupId, { imageDriveId: driveId, ...touched() })
+      }
+      const pendingReceipts = (await db.expenses.where('groupId').equals(groupId).toArray()).filter(
+        (e) => e.receiptId && !e.receiptDriveId,
+      )
+      for (const e of pendingReceipts) {
+        const driveId = await uploadLocalImage(
+          e.receiptId!,
+          share.folderId,
+          `recibo-${e.date}`,
+          token,
+        ).catch(() => null)
+        if (driveId) await db.expenses.update(e.id, { receiptDriveId: driveId, ...touched() })
+      }
+      group = (await db.groups.get(groupId)) ?? group // refresca updatedAt/imageDriveId
+    }
+
     const tabs = await batchGetTabs(share.spreadsheetId, SHEET_TABS, token)
 
     // --- parseo remoto ---
@@ -115,12 +161,13 @@ async function doSync(groupId: string, interactive: boolean): Promise<void> {
       }
 
       // meta del grupo por LWW
-      if (remoteMeta && remoteMeta.updatedAt > group.updatedAt) {
+      if (remoteMeta && remoteMeta.updatedAt > group!.updatedAt) {
         await db.groups.update(groupId, {
           name: remoteMeta.name,
           type: remoteMeta.type,
           currency: remoteMeta.currency,
           defaultSplit: remoteMeta.defaultSplit,
+          imageDriveId: remoteMeta.imageDriveId ?? null,
           updatedAt: remoteMeta.updatedAt,
         })
       }
@@ -205,14 +252,16 @@ export async function shareGroup(
   const spreadsheetId = await createSpreadsheet(`Ram Split · ${group.name}`, SHEET_TABS, token)
   logDebug('share', `hoja creada: ${spreadsheetId}, organizando en carpetas…`)
 
-  // Organiza en "RAM Split / <grupo> /" dentro del Drive y marca la hoja como grupo
-  try {
-    const rootFolder = await ensureFolder('RAM Split', null, token)
-    const groupFolder = await ensureFolder(group.name, rootFolder, token)
-    await fileIntoFolder(spreadsheetId, groupFolder, token)
-  } catch (e) {
-    // Si falla el ordenado en carpetas, la hoja sigue funcionando en la raíz
-    logDebug('share', 'no se pudo organizar en carpeta (no crítico)', e instanceof Error ? e.message : e)
+  // Organiza en "RAM Split / <grupo> /". La carpeta del grupo es lo que se
+  // comparte: así los miembros acceden también a recibos e imagen.
+  const rootFolder = await ensureFolder('RAM Split', null, token)
+  const groupFolder = await ensureFolder(group.name, rootFolder, token)
+  await fileIntoFolder(spreadsheetId, groupFolder, token)
+
+  // Sube la portada del grupo (si el usuario le puso una) a la carpeta
+  let imageDriveId = group.imageDriveId ?? null
+  if (group.imageLocalId && !imageDriveId) {
+    imageDriveId = await uploadLocalImage(group.imageLocalId, groupFolder, `portada-${group.name}`, token)
   }
   logDebug('share', 'sembrando datos…')
 
@@ -223,7 +272,19 @@ export async function shareGroup(
   const settlements = await db.settlements.where('groupId').equals(group.id).toArray()
   const cats = new Map((await db.categories.toArray()).map((c) => [c.id, c]))
 
-  await overwriteTab(spreadsheetId, 'meta', [[groupToMeta(group)]], token)
+  // Sube los recibos ya existentes antes de sembrar los gastos
+  for (const e of expenses) {
+    if (e.receiptId && !e.receiptDriveId) {
+      const driveId = await uploadLocalImage(e.receiptId, groupFolder, `recibo-${e.date}`, token)
+      if (driveId) {
+        e.receiptDriveId = driveId
+        await db.expenses.update(e.id, { receiptDriveId: driveId })
+      }
+    }
+  }
+
+  const seededGroup = { ...group, imageDriveId }
+  await overwriteTab(spreadsheetId, 'meta', [[groupToMeta(seededGroup)]], token)
   await overwriteTab(spreadsheetId, 'members', persons.map(personToRow), token)
   await overwriteTab(
     spreadsheetId,
@@ -233,9 +294,9 @@ export async function shareGroup(
   )
   await overwriteTab(spreadsheetId, 'settlements', settlements.map(settlementToRow), token)
 
-  logDebug('share', 'datos sembrados, compartiendo por Drive…')
+  logDebug('share', 'datos sembrados, compartiendo la carpeta por Drive…')
   const inviteResult = await shareWithEmails(
-    spreadsheetId,
+    groupFolder,
     invites.map((i) => i.email),
     token,
   )
@@ -245,17 +306,25 @@ export async function shareGroup(
   })
 
   await db.groups.update(group.id, {
-    share: { spreadsheetId, role: 'owner' as const, lastSyncAt: nowISO(), lastError: null },
+    imageDriveId,
+    share: {
+      spreadsheetId,
+      folderId: groupFolder,
+      role: 'owner' as const,
+      lastSyncAt: nowISO(),
+      lastError: null,
+    },
   })
 
-  return { spreadsheetId, joinLink: buildJoinLink(spreadsheetId), invites: inviteResult }
+  return { spreadsheetId, joinLink: buildJoinLink(groupFolder), invites: inviteResult }
 }
 
-/** Invitar más personas a un grupo ya compartido. */
+/** Invitar más personas a un grupo ya compartido (comparte la carpeta si existe). */
 export async function inviteMore(group: Group, emails: string[]): Promise<ShareResult> {
   if (!group.share) throw new Error('El grupo no está compartido')
   const token = await getAccessToken(true)
-  return shareWithEmails(group.share.spreadsheetId, emails, token)
+  const target = group.share.folderId ?? group.share.spreadsheetId
+  return shareWithEmails(target, emails, token)
 }
 
 // ---------- unirse a un grupo ----------
@@ -264,27 +333,50 @@ export type JoinResult =
   | { status: 'joined'; groupId: string }
   | { status: 'chooseIdentity'; groupId: string; members: Person[] }
 
-export async function joinGroup(spreadsheetId: string): Promise<JoinResult> {
+/**
+ * `id` puede ser una carpeta (links nuevos) o una hoja (links antiguos / dueño).
+ * Resuelve la hoja y, si es carpeta, guarda folderId para acceder a las imágenes.
+ */
+export async function joinGroup(id: string): Promise<JoinResult> {
   const token = await getAccessToken(true)
 
-  // ¿ya está vinculado (p. ej. el dueño abriendo su propio link)?
+  // ¿ya está vinculado (por carpeta o por hoja)?
   const groups = await db.groups.toArray()
-  const linked = groups.find((g) => g.share?.spreadsheetId === spreadsheetId)
+  const linked = groups.find(
+    (g) => g.share && (g.share.folderId === id || g.share.spreadsheetId === id),
+  )
   if (linked) {
     await syncGroup(linked.id, true)
     return finishJoin(linked.id)
   }
+
+  // ¿es una carpeta con una hoja de Ram Split adentro?
+  let folderId: string | null = null
+  let spreadsheetId = id
+  const sheets = await listFolderSheets(id, token)
+  if (sheets.length > 0) {
+    folderId = id
+    spreadsheetId = sheets[0].id
+  }
+  // Si no es carpeta accesible, se trata `id` como hoja; batchGetTabs lanzará
+  // "sin permiso"/"no se encontró" si no hay acceso → la UI abre el selector.
 
   const tabs = await batchGetTabs(spreadsheetId, SHEET_TABS, token)
   const metaRaw = tabs.meta[0]?.[0]
   if (!metaRaw) throw new Error('La hoja no tiene el formato de un grupo de Ram Split')
   const meta = parseMeta(metaRaw)
 
+  const share = {
+    spreadsheetId,
+    folderId,
+    role: 'member' as const,
+    lastSyncAt: null,
+    lastError: null,
+  }
+
   const existing = await db.groups.get(meta.id)
   if (existing) {
-    await db.groups.update(meta.id, {
-      share: { spreadsheetId, role: 'member' as const, lastSyncAt: null, lastError: null },
-    })
+    await db.groups.update(meta.id, { share, imageDriveId: meta.imageDriveId ?? null })
     await syncGroup(meta.id, true)
     return finishJoin(meta.id)
   }
@@ -306,7 +398,8 @@ export async function joinGroup(spreadsheetId: string): Promise<JoinResult> {
     currency: meta.currency,
     memberIds: members.filter(notDeleted).map((p) => p.id),
     defaultSplit: meta.defaultSplit,
-    share: { spreadsheetId, role: 'member' as const, lastSyncAt: null, lastError: null },
+    imageDriveId: meta.imageDriveId ?? null,
+    share,
   })
 
   await syncGroup(meta.id, true)
