@@ -7,14 +7,17 @@ import { logDebug } from '../../utils/logger'
  * Tipos mínimos locales para no chocar con la declaración global de auth.ts.
  */
 
+interface DocsViewInstance {
+  setIncludeFolders(v: boolean): DocsViewInstance
+  setSelectFolderEnabled(v: boolean): DocsViewInstance
+  setOwnedByMe(v: boolean): DocsViewInstance
+  setMode(mode: string): DocsViewInstance
+  setLabel(label: string): DocsViewInstance
+}
+
 interface PickerNamespace {
   picker: {
-    DocsView: new (viewId?: string) => {
-      setIncludeFolders(v: boolean): unknown
-      setSelectFolderEnabled(v: boolean): unknown
-      setMimeTypes(v: string): unknown
-      setMode(mode: string): unknown
-    }
+    DocsView: new (viewId?: string) => DocsViewInstance
     PickerBuilder: new () => PickerBuilder
     ViewId: { SPREADSHEETS: string; FOLDERS: string; DOCS: string }
     DocsViewMode: { LIST: string }
@@ -92,19 +95,27 @@ export async function pickGroupSource(token: string): Promise<string | null> {
   const g = (window as unknown as { google: PickerNamespace }).google
   logDebug('picker', 'abriendo selector de carpeta/hoja del grupo')
 
-  const folders = new g.picker.DocsView(g.picker.ViewId.FOLDERS)
-  folders.setSelectFolderEnabled(true)
-  folders.setMimeTypes('application/vnd.google-apps.folder')
-  folders.setMode(g.picker.DocsViewMode.LIST)
+  // Vista DOCS con carpetas seleccionables (sin setMimeTypes: esa combinación con
+  // ViewId.FOLDERS provoca "invalid argument"). Dos pestañas: compartido conmigo
+  // (para miembros) y Mi Drive (para el dueño). joinGroup acepta carpeta u hoja.
+  const shared = new g.picker.DocsView(g.picker.ViewId.DOCS)
+  shared.setIncludeFolders(true)
+  shared.setSelectFolderEnabled(true)
+  shared.setOwnedByMe(false)
+  shared.setMode(g.picker.DocsViewMode.LIST)
+  shared.setLabel('Compartidos conmigo')
 
-  const sheets = new g.picker.DocsView(g.picker.ViewId.SPREADSHEETS)
-  sheets.setIncludeFolders(false)
-  sheets.setMode(g.picker.DocsViewMode.LIST)
+  const mine = new g.picker.DocsView(g.picker.ViewId.DOCS)
+  mine.setIncludeFolders(true)
+  mine.setSelectFolderEnabled(true)
+  mine.setOwnedByMe(true)
+  mine.setMode(g.picker.DocsViewMode.LIST)
+  mine.setLabel('Mi Drive')
 
   return new Promise((resolve) => {
     const picker = new g.picker.PickerBuilder()
-      .addView(folders)
-      .addView(sheets)
+      .addView(shared)
+      .addView(mine)
       .setOAuthToken(token)
       .setDeveloperKey(GOOGLE_API_KEY!)
       .setAppId(appId)
