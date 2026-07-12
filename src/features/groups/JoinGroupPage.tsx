@@ -5,7 +5,7 @@ import { Avatar } from '../../components/ui'
 import { IconCloud } from '../../components/icons'
 import { isGoogleConfigured } from '../../services/google/config'
 import { connectGoogle, getAccessToken } from '../../services/google/auth'
-import { pickSharedFolder } from '../../services/google/picker'
+import { pickGroupSource } from '../../services/google/picker'
 import { adoptIdentity, joinGroup } from '../../services/sync/groupSync'
 
 type Step =
@@ -57,7 +57,7 @@ export function JoinGroupPage({ spreadsheetId }: { spreadsheetId: string }) {
   async function handlePick() {
     try {
       const token = await getAccessToken(true)
-      const picked = await pickSharedFolder(token)
+      const picked = await pickGroupSource(token)
       if (!picked) return // canceló: sigue en el paso de elegir
       await joinWith(picked)
     } catch (e) {

@@ -264,7 +264,6 @@ export async function shareGroup(
 ): Promise<ShareGroupResult> {
   logDebug('share', `compartiendo "${group.name}" con ${invites.length} email(s)`)
   const token = await getAccessToken(true)
-  logDebug('share', 'token OK, creando hoja de cálculo…')
 
   // guarda los emails en las personas para futuros matches de identidad
   for (const invite of invites) {
@@ -273,14 +272,32 @@ export async function shareGroup(
     }
   }
 
-  const spreadsheetId = await createSpreadsheet(`Ram Split · ${group.name}`, SHEET_TABS, token)
-  logDebug('share', `hoja creada: ${spreadsheetId}, organizando en carpetas…`)
-
   // Organiza en "RAM Split / <grupo> /". La carpeta del grupo es lo que se
   // comparte: así los miembros acceden también a recibos e imagen.
   const rootFolder = await ensureFolder('RAM Split', null, token)
   const groupFolder = await ensureFolder(group.name, rootFolder, token)
-  await fileIntoFolder(spreadsheetId, groupFolder, token)
+
+  // REUTILIZA la hoja del grupo si ya existe en la carpeta (p. ej. al volver a
+  // compartir): crear una nueva dejaría a los miembros apuntando a la vieja.
+  let spreadsheetId: string | null = null
+  for (const candidate of await listFolderSheets(groupFolder, token)) {
+    try {
+      const tabs = await batchGetTabs(candidate.id, ['meta'], token)
+      const metaRaw = tabs.meta[0]?.[0]
+      if (metaRaw && parseMeta(metaRaw).id === group.id) {
+        spreadsheetId = candidate.id
+        logDebug('share', `reutilizando hoja existente: ${spreadsheetId}`)
+        break
+      }
+    } catch {
+      // hoja ilegible o de otro grupo: se ignora
+    }
+  }
+  if (!spreadsheetId) {
+    spreadsheetId = await createSpreadsheet(`Ram Split · ${group.name}`, SHEET_TABS, token)
+    await fileIntoFolder(spreadsheetId, groupFolder, token)
+    logDebug('share', `hoja creada: ${spreadsheetId}`)
+  }
 
   // Sube la portada del grupo (si el usuario le puso una) a la carpeta
   let imageDriveId = group.imageDriveId ?? null

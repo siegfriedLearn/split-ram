@@ -6,11 +6,12 @@ import { Field, Modal } from '../../components/ui'
 import { IconCheck, IconCloud, IconCopy, IconRepeat } from '../../components/icons'
 import { isGoogleConfigured } from '../../services/google/config'
 import { connectGoogle, getAccessToken } from '../../services/google/auth'
-import { pickSharedSpreadsheet } from '../../services/google/picker'
+import { pickGroupSource } from '../../services/google/picker'
 import { spreadsheetUrl } from '../../services/google/sheets'
 import {
   buildJoinLink,
   inviteMore,
+  joinGroup,
   shareGroup,
   syncGroup,
 } from '../../services/sync/groupSync'
@@ -105,23 +106,27 @@ export function ShareGroupModal({ group, onClose }: { group: Group; onClose: () 
     }
   }
 
-  // Bajo drive.file, si la app perdió acceso a la hoja se recupera eligiéndola de nuevo
-  async function handleReauthorize() {
-    if (!group.share) return
+  /**
+   * Reconexión cuando la hoja vinculada ya no existe o se perdió el acceso
+   * (p. ej. el dueño volvió a compartir y creó hoja nueva): el usuario elige la
+   * carpeta/hoja actual en Drive y joinGroup re-vincula el mismo grupo local
+   * (empata por el id interno del grupo — no se pierde nada).
+   */
+  async function handleReconnect() {
     setBusy(true)
     setError('')
     try {
       const token = await getAccessToken(true)
-      const picked = await pickSharedSpreadsheet(token)
+      const picked = await pickGroupSource(token)
       if (!picked) return
-      if (picked !== group.share.spreadsheetId) {
-        setError('Esa no es la hoja de este grupo; elige la correcta en "Compartidos conmigo".')
-        return
+      const result = await joinGroup(picked)
+      if (result.groupId !== group.id) {
+        setNotice('Elegiste otro grupo distinto; quedó vinculado como grupo aparte.')
+      } else {
+        setNotice('Grupo reconectado y sincronizado ✅')
       }
-      await syncGroup(group.id, true)
-      setNotice('Hoja reautorizada y sincronizada ✅')
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'No se pudo reautorizar la hoja')
+      setError(e instanceof Error ? e.message : 'No se pudo reconectar el grupo')
     } finally {
       setBusy(false)
     }
@@ -257,10 +262,16 @@ export function ShareGroupModal({ group, onClose }: { group: Group; onClose: () 
                 <IconRepeat size={13} /> {busy ? 'Sincronizando…' : 'Sincronizar ahora'}
               </button>
             </div>
-            {share.role === 'member' && share.lastError && /sin permiso|no se encontró/i.test(share.lastError) && (
-              <button className="btn-secondary w-full" onClick={handleReauthorize} disabled={busy}>
-                Reautorizar hoja (elegirla en Drive)
-              </button>
+            {share.lastError && /sin permiso|no se encontró/i.test(share.lastError) && (
+              <div className="space-y-1.5">
+                <button className="btn-secondary w-full" onClick={handleReconnect} disabled={busy}>
+                  Reconectar grupo (elegir carpeta en Drive)
+                </button>
+                <p className="text-xs text-slate-400">
+                  Suele pasar cuando el grupo se volvió a compartir: elige la carpeta actual del
+                  grupo en "Compartidos conmigo" y todo vuelve a sincronizar.
+                </p>
+              </div>
             )}
 
             <Field label="Link de unión (envíalo por WhatsApp)">

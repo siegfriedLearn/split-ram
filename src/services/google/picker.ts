@@ -78,10 +78,11 @@ function loadPickerApi(): Promise<void> {
 }
 
 /**
- * Abre el selector con las hojas de cálculo del usuario (incluye "compartidos
- * conmigo"). Devuelve el id elegido, o null si canceló.
+ * Selector para vincular un grupo: dos pestañas — CARPETAS (ideal: da acceso a
+ * hoja + recibos + portada) y hojas de cálculo (compatibilidad con grupos
+ * compartidos antes de las carpetas). `joinGroup` acepta ambos tipos de id.
  */
-export async function pickSharedSpreadsheet(token: string): Promise<string | null> {
+export async function pickGroupSource(token: string): Promise<string | null> {
   if (!GOOGLE_API_KEY) {
     throw new Error('Falta configurar VITE_GOOGLE_API_KEY (ver README → Publicar tu propia instancia)')
   }
@@ -89,51 +90,26 @@ export async function pickSharedSpreadsheet(token: string): Promise<string | nul
   if (!appId) throw new Error('Falta configurar VITE_GOOGLE_CLIENT_ID')
   await loadPickerApi()
   const g = (window as unknown as { google: PickerNamespace }).google
-  logDebug('picker', 'abriendo selector de hojas de cálculo')
-  return runPicker(g, token, appId, (view) => {
-    view.setIncludeFolders(false)
-    view.setMode(g.picker.DocsViewMode.LIST)
-  }, g.picker.ViewId.SPREADSHEETS, 'Elige la hoja del grupo compartido')
-}
+  logDebug('picker', 'abriendo selector de carpeta/hoja del grupo')
 
-/**
- * Selector de CARPETAS. Al elegir la carpeta del grupo, la app queda autorizada
- * a la hoja y a las imágenes (recibos/portada) que contiene.
- */
-export async function pickSharedFolder(token: string): Promise<string | null> {
-  if (!GOOGLE_API_KEY) {
-    throw new Error('Falta configurar VITE_GOOGLE_API_KEY (ver README → Publicar tu propia instancia)')
-  }
-  const appId = googleProjectNumber()
-  if (!appId) throw new Error('Falta configurar VITE_GOOGLE_CLIENT_ID')
-  await loadPickerApi()
-  const g = (window as unknown as { google: PickerNamespace }).google
-  logDebug('picker', 'abriendo selector de carpetas')
-  return runPicker(g, token, appId, (view) => {
-    view.setSelectFolderEnabled(true)
-    view.setMimeTypes('application/vnd.google-apps.folder')
-    view.setMode(g.picker.DocsViewMode.LIST)
-  }, g.picker.ViewId.FOLDERS, 'Elige la carpeta del grupo compartido')
-}
+  const folders = new g.picker.DocsView(g.picker.ViewId.FOLDERS)
+  folders.setSelectFolderEnabled(true)
+  folders.setMimeTypes('application/vnd.google-apps.folder')
+  folders.setMode(g.picker.DocsViewMode.LIST)
 
-function runPicker(
-  g: PickerNamespace,
-  token: string,
-  appId: string,
-  configure: (view: InstanceType<PickerNamespace['picker']['DocsView']>) => void,
-  viewId: string,
-  title: string,
-): Promise<string | null> {
+  const sheets = new g.picker.DocsView(g.picker.ViewId.SPREADSHEETS)
+  sheets.setIncludeFolders(false)
+  sheets.setMode(g.picker.DocsViewMode.LIST)
+
   return new Promise((resolve) => {
-    const view = new g.picker.DocsView(viewId)
-    configure(view)
     const picker = new g.picker.PickerBuilder()
-      .addView(view)
+      .addView(folders)
+      .addView(sheets)
       .setOAuthToken(token)
       .setDeveloperKey(GOOGLE_API_KEY!)
       .setAppId(appId)
       .setLocale('es')
-      .setTitle(title)
+      .setTitle('Elige la carpeta del grupo compartido')
       .setCallback((data) => {
         if (data.action === g.picker.Action.PICKED) {
           const id = data.docs?.[0]?.id ?? null
